@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>모의 운용 실시간 대시보드</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#111827; --mut:#6b7280; --line:#e5e7eb; --up:#dc2626; --down:#2563eb; --acc:#111827; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; background:var(--bg); color:var(--ink); }
+  header { position:sticky; top:0; z-index:5; background:var(--bg); padding:10px 12px 6px; border-bottom:1px solid var(--line); }
+  .top { display:flex; align-items:center; gap:8px; }
+  h1 { font-size:17px; margin:0; flex:1; }
+  .paper { display:inline-block; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; padding:2px 8px; border-radius:99px; }
+  #refresh { background:var(--acc); color:#fff; border:0; border-radius:10px; padding:9px 14px; font-size:15px; font-weight:700; }
+  #refresh:disabled { opacity:.6; }
+  #meta { font-size:12px; color:var(--mut); margin-top:6px; }
+  #prog { font-size:12px; color:var(--mut); min-height:16px; }
+  .seg { display:flex; gap:4px; overflow-x:auto; padding:6px 0 2px; scrollbar-width:none; }
+  .seg button { flex:0 0 auto; border:1px solid var(--line); background:#fff; border-radius:99px; padding:6px 12px; font-size:14px; color:var(--ink); }
+  .seg button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .seg.small button { padding:4px 10px; font-size:13px; }
+  main { padding:8px 12px 40px; max-width:760px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; margin:10px 0; }
+  h2 { font-size:15px; margin:0 0 8px; } h2 small { color:var(--mut); font-weight:400; font-size:12px; }
+  .metrics { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .metric { background:var(--bg); border-radius:10px; padding:8px 10px; }
+  .ml { font-size:12px; color:var(--mut); } .mv { font-size:19px; font-weight:800; } .md { font-size:12px; color:var(--mut); }
+  .up { color:var(--up); } .down { color:var(--down); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:var(--mut); font-weight:500; font-size:12px; border-bottom:1px solid var(--line); padding:4px 4px; }
+  td { border-bottom:1px solid var(--line); padding:6px 4px; vertical-align:top; }
+  tr[data-go] { cursor:pointer; }
+  .muted { color:var(--mut); font-size:12px; margin-top:6px; }
+  .tag { display:inline-block; font-size:11px; background:#eef2ff; color:#3730a3; border-radius:6px; padding:0 5px; margin-left:4px; }
+  .tag.short { background:#fee2e2; color:#991b1b; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:13px; } .kv div:nth-child(odd) { color:var(--mut); }
+  .chartbox { position:relative; } .chart { width:100%; height:auto; touch-action:pan-y; }
+  .chart .grid { stroke:#eef0f3; } .chart .zero { stroke:#9ca3af; stroke-dasharray:2 2; } .chart .ax { font-size:9px; fill:#6b7280; } .chart .cross { stroke:#111827; stroke-width:.6; }
+  .tip { position:absolute; top:4px; background:rgba(17,24,39,.9); color:#fff; font-size:11px; padding:4px 6px; border-radius:6px; pointer-events:none; width:130px; }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 12px; font-size:12px; margin-top:4px; } .legend i { display:inline-block; width:10px; height:3px; margin-right:4px; vertical-align:middle; }
+  #lock { max-width:380px; margin:12vh auto; padding:0 16px; } #lock input[type=password] { width:100%; font-size:17px; padding:12px; border:1px solid var(--line); border-radius:10px; margin:10px 0; }
+  #lock button { width:100%; background:var(--acc); color:#fff; border:0; border-radius:10px; padding:12px; font-size:16px; font-weight:700; }
+  footer { text-align:center; font-size:11px; color:var(--mut); padding:10px; }
+  #logout { background:none; border:0; color:var(--mut); text-decoration:underline; font-size:11px; }
+</style>
+</head>
+<body>
+<div id="lock">
+  <h1>모의 운용 대시보드</h1>
+  <p><span class="paper">모의 운용(실제 돈 아님)</span></p>
+  <form id="lockform">
+    <input id="pw" type="password" autocomplete="current-password" placeholder="비밀번호">
+    <label><input id="remember" type="checkbox" checked> 이 기기에서 기억</label>
+    <p><button type="submit">열기</button></p>
+  </form>
+  <div id="lockmsg" class="muted"></div>
+</div>
+<div id="app" style="display:none">
+  <header>
+    <div class="top"><h1>모의 운용 대시보드</h1><button id="refresh">새로고침</button></div>
+    <span class="paper">모의 운용(실제 돈 아님)</span>
+    <div id="meta"></div><div id="prog"></div>
+    <div class="seg" id="tabs"></div>
+  </header>
+  <main id="main"></main>
+  <footer>모의 계산이며 실제 거래·실제 성과가 아닙니다. 공개 시세만 읽고, 주문·계좌·키는 쓰지 않습니다.<br><button id="logout">이 기기에서 비밀번호 지우기</button></footer>
+</div>
+<script src="core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
