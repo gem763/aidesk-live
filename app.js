@@ -4,7 +4,7 @@
   const C = window.LiveCore;
   const $ = (s) => document.querySelector(s);
   const PASS_KEY = 'aidesk_live_pass';
-  const state = { data: null, tab: 'home', a2View: { A2: 'total', A2W26: 'total' }, nmTest: 'NM-LS', range: 'all', px: null, nmPx: null, fetchedAt: null, source: '', warn: [] };
+  const state = { data: null, tab: 'home', a2View: { A2: 'total', A2W26: 'total' }, a2Slot: { A2: '18h', A2W26: '18h' }, nmTest: 'NM-LS', range: 'all', px: null, nmPx: null, fetchedAt: null, source: '', warn: [] };
 
   /* ---------- crypto ---------- */
   const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -165,77 +165,185 @@
   }
   const metric = (label, value, detail, tn) => `<div class="metric"><div class="ml">${label}</div><div class="mv ${tn || ''}">${value}</div><div class="md">${detail || ''}</div></div>`;
 
+  const ABOUT = {
+    A2: '하루 4번(0·6·12·18시) 시각별로 따로 운용하는 4개 슬리브의 모의 성적입니다. 고른 코인은 슬리브마다 정해진 기간(1·3·5일) 보유합니다. 매주 월요일 조합을 고를 때 최근 2년을 봅니다.',
+    A2W26: 'A2와 규칙이 같고 한 가지만 다릅니다. 매주 월요일 조합을 고를 때 최근 26주만 봄(A2는 최근 2년). 기존 A2와 별개의 시험이며 서로의 결과로 규칙을 바꾸지 않습니다.',
+  };
+  const NM_SHORT = { 'NM-LS': 'Numerai 롱숏', 'LV-LS': '단순 순위 롱숏', 'NM-L': 'Numerai 현물 매수' };
+  const NM_DESC = {
+    'NM-LS': '바이낸스 선물. Numerai 순위 상위 20% 매수, 하위 20% 중 공매도 수수료(펀딩비)를 받는 코인만 공매도.',
+    'LV-LS': 'NM-LS와 똑같고, 순위만 Numerai 대신 \'덜 흔들리는 코인\' 순으로 매김.',
+    'NM-L': '바이낸스 현물. Numerai 순위 상위 20%를 사기만 함.',
+  };
+  const RC_TEXT = { 0: '정상', 2: '설정 오류', 3: '다른 실행이 잠금 중', 4: '장부 이상', 5: '멈춤', 6: '보류', 7: '시세 조회 실패' };
+  const kv = (rows) => `<div class="kv">${rows.filter(Boolean).map(([k, v]) => `<div>${k}</div><div>${v}</div>`).join('')}</div>`;
+  const ks = (s) => (s ? esc(String(s).replace('T', ' ').slice(5, 16)) : '-');
+  const pp = (v, unit) => (v == null || !isFinite(v) ? '-' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + (unit || '%'));
+  const RUN_SLOTS = { A2: '매일 0·6·12·18시 26분 무렵 KST', A2W26: '매일 0·6·12·18시 26분 무렵 KST (A2 바로 뒤)' };
+  // a sleeve whose boundary time has passed but is not in the ledger yet
+  function pendingNote(ls, nowMs) {
+    const nb = ls.started ? ls.next_boundary_kst : ls.start_boundary_kst; if (!nb) return null;
+    const t = C.parseKst(nb); if (nowMs < t) return null;
+    return `${C.fmtKst(t)} 교체 시각은 지났지만 아직 장부에 기록 전입니다. 다음 자동 실행 때 그 시간의 첫 거래 가격으로 소급 기록되고, 곡선도 그 시각부터 다시 계산됩니다.`;
+  }
+
   function a2View(key) {
     const b = state.data.a2[key], r = a2Result(key);
     if (!r) return '<div class="card">자료 없음</div>';
-    const n = r.times.length - 1, cap = r.capital;
+    const n = r.times.length - 1, cap = r.capital, nowMs = r.times[n];
     const v = r.total.A2[n], b0 = r.total.B0[n], ew = r.total.EW[n];
     const view = state.a2View[key];
+    const LS = {}; (b.ledger_sleeves || []).forEach((x) => { LS[x.tranche] = x; });
     let times = r.times, base = cap, A = r.total.A2, B0 = r.total.B0, EW = r.total.EW;
     if (view !== 'total') { const s = r.sleeves.find((x) => x.tranche === view); base = r.nav; A = s.series.A2; B0 = s.series.B0; EW = s.series.EW; }
     if (view === 'total' && r.older.length) { times = r.older.map((o) => o.t).concat(times); A = r.older.map((o) => o.A2).concat(A); B0 = r.older.map((o) => o.B0).concat(B0); EW = r.older.map((o) => o.EW).concat(EW); }
     const c = cut(times, [A, B0, EW]);
     const P = (arr) => arr.map((x) => (x / base - 1) * 100);
-    let h = `<div class="card"><h2>${esc(b.name)} 합산 (모의 원금 ${won(cap)})</h2><div class="metrics">`
+    let h = `<div class="card"><h2>${esc(b.name)}는 이런 시험입니다</h2><div class="txt">${esc(ABOUT[key] || '')}</div></div>`;
+    const pend = r.sleeves.map((s) => pendingNote(LS[s.tranche] || {}, nowMs)).filter(Boolean);
+    if (pend.length) h += `<div class="card warn"><b>기록 대기</b><br>${pend.map(esc).join('<br>')}</div>`;
+    h += `<div class="card"><h2>합산 성적 (모의 원금 ${won(cap)})</h2><div class="metrics">`
       + metric('지금 평가액', won(v), pct(v / cap - 1) + ' 원금 대비', tone(v / cap - 1))
       + metric('BTC·ETH 50/50 대비', pct(v / b0 - 1), '50/50 ' + won(b0), tone(v / b0 - 1))
       + metric('16개 균등 보유 대비', pct(v / ew - 1), '균등 ' + won(ew), tone(v / ew - 1))
       + metric('누적 매매 비용', won(r.sleeves.reduce((a, s) => a + (s.cost || 0), 0)), '매수·매도 각 0.04%')
-      + `</div></div>`;
+      + `</div><div class="muted">장부(마지막 교체 시점 가격) 기준 합산 ${won(b.ledger_total.value_krw)}. 위 숫자는 같은 보유 수량을 방금 받은 시세로 다시 평가한 값입니다.</div></div>`;
     h += `<div class="card"><h2>누적 수익률 곡선 <small>원금 대비 %, 10분 단위</small></h2>`
       + `<div class="seg small" data-act="a2view" data-k="${key}">${Object.entries(SLOT).map(([k2, l]) => `<button class="${view === k2 ? 'on' : ''}" data-v="${k2}">${l}</button>`).join('')}</div>${rangeSel()}`
       + chart(c.times, [{ name: b.name, values: P(c.arrs[0]), color: '#2563eb', width: 2.2 }, { name: '50/50', values: P(c.arrs[1]), color: '#f59e0b' }, { name: '균등', values: P(c.arrs[2]), color: '#94a3b8', dash: 1 }])
-      + `<div class="muted">10분마다 한 점. 마지막 점은 방금 받은 시세. ${r.older.length ? '10분 단위 이전 구간은 리밸런스 시점 장부 값.' : ''}</div></div>`;
-    h += `<div class="card"><h2>슬리브 4개</h2><table><tr><th>슬리브</th><th>평가액</th><th>원금 대비</th><th>상태</th></tr>`
-      + r.sleeves.map((s) => { const x = s.series.A2[n]; return `<tr><td>${SLOT[s.tranche]}${s.unaudited ? '<span class="tag">추가 점검 전</span>' : ''}</td><td>${won(x)}</td><td class="${tone(x / r.nav - 1)}">${s.started ? pct(x / r.nav - 1) : '-'}</td><td>${s.started ? '운용 중 · 다음 교체 ' + (s.next ? C.fmtKst(s.next) : '-') : '대기 · ' + C.fmtKst(s.start) + ' 시작'}</td></tr>`; }).join('') + `</table></div>`;
-    h += `<div class="card"><h2>지금 보유 코인</h2><table><tr><th>슬리브·코인</th><th>매수가</th><th>현재가</th><th>등락</th><th>평가액</th></tr>`;
-    r.sleeves.forEach((s) => s.holdings.forEach((x) => { h += `<tr><td>${SLOT[s.tranche]} · <b>${esc(x.coin)}</b><br><span class="muted">${esc(x.role || '')} · ${C.fmtKst(x.since)} 매수</span></td><td>${price(x.entry)}</td><td>${price(x.now)}</td><td class="${tone(x.chg)}">${pct(x.chg)}</td><td>${won(x.value)}</td></tr>`; }));
+      + `<div class="muted">10분마다 한 점. 마지막 점은 방금 받은 시세. ${r.older.length ? '10분 단위 이전 구간은 교체 시점 장부 값.' : ''}</div></div>`;
+    h += `<div class="card"><h2>슬리브 4개 요약</h2><table><tr><th>슬리브</th><th>평가액</th><th>원금 대비</th><th>균등 대비</th><th>상태</th></tr>`
+      + r.sleeves.map((s) => { const x = s.series.A2[n], e = s.series.EW[n]; const pn = pendingNote(LS[s.tranche] || {}, nowMs);
+        return `<tr><td>${SLOT[s.tranche]}${s.unaudited ? '<span class="tag">추가 점검 전</span>' : ''}</td><td>${won(x)}</td><td class="${tone(x / r.nav - 1)}">${s.started ? pct(x / r.nav - 1) : '-'}</td><td class="${tone(x / e - 1)}">${s.started ? pct(x / e - 1) : '-'}</td><td>${s.started ? '운용 중' : '대기'}${pn ? '<br><span class="tag warn">기록 대기</span>' : ''}</td></tr>`; }).join('') + `</table></div>`;
+    // sleeve detail
+    const slot = state.a2Slot[key];
+    const s = r.sleeves.find((x) => x.tranche === slot) || r.sleeves[0]; const L = LS[s.tranche] || {};
+    h += `<div class="card"><h2>슬리브 상세</h2><div class="seg small" data-act="a2slot" data-k="${key}">${['00h', '06h', '12h', '18h'].map((k2) => `<button class="${slot === k2 ? 'on' : ''}" data-v="${k2}">${SLOT[k2]}</button>`).join('')}</div>`
+      + (s.unaudited ? `<div class="note">이 시각(6시·18시)은 과거 실험에는 포함됐지만 추가 점검은 아직 하지 않은 슬롯입니다.</div>` : '')
+      + kv([['지금 평가액', won(s.series.A2[n]) + ' · ' + (s.started ? pct(s.series.A2[n] / r.nav - 1) : '대기')],
+            ['50/50 · 균등 보유였다면', won(s.series.B0[n]) + ' · ' + won(s.series.EW[n])],
+            ['장부 평가액 (교체 시점)', won(L.value_krw)],
+            ['누적 비용', won(L.cost_krw)],
+            ['마지막 교체', L.last_boundary_kst ? ks(L.last_boundary_kst) + ' KST' : '아직 없음 (' + ks(L.start_boundary_kst) + ' 시작)'],
+            ['다음 교체', ks(L.next_boundary_kst) + ' KST (장부 기록은 ' + ks(L.next_processable_kst) + ' 이후 자동 실행 때)'],
+            ['처리한 교체 횟수', (L.boundaries_done || 0) + '회']]);
+    if (s.holdings.length) {
+      h += `<h3>지금 보유 중</h3><table><tr><th>코인</th><th>비중</th><th>매수가 → 현재가</th><th>평가액</th><th>청산 예정</th></tr>`
+        + s.holdings.map((x) => { const m = (L.holdings || []).find((q) => q.symbol === x.coin) || {};
+          return `<tr><td><b>${esc(x.coin)}</b><br><span class="muted">${String(x.role).startsWith('앵커') ? '앵커' : '급등'}</span></td><td>${m.weight != null ? (m.weight * 100).toFixed(1) + '%' : '-'}</td><td>${price(x.entry)} → ${price(x.now)}<br><span class="${tone(x.chg)}">${pct(x.chg)}</span></td><td>${won(x.value)}</td><td>${m.planned_exit_kst ? ks(m.planned_exit_kst) : '다음 교체 때'}</td></tr>`; }).join('') + `</table>`;
+    }
+    const fills = (L.fills || []).slice().reverse().slice(0, 30);
+    if (fills.length) h += `<details><summary>최근 매매 기록 (${fills.length}건)</summary><table><tr><th>시각</th><th>코인</th><th>매수/매도</th><th>가격</th><th>금액</th></tr>`
+      + fills.map((f) => `<tr><td>${ks(f.boundary_kst)}</td><td>${esc(f.symbol)}</td><td>${f.side === 'BUY' ? '매수' : '매도'}</td><td>${price(f.price)}</td><td>${won(f.notional_krw)}</td></tr>`).join('') + `</table></details>`;
+    h += `</div>`;
+    h += `<div class="card"><h2>지금 보유 코인 (전체 슬리브)</h2><table><tr><th>슬리브·코인</th><th>매수가</th><th>현재가</th><th>등락</th><th>평가액</th></tr>`;
+    r.sleeves.forEach((s2) => s2.holdings.forEach((x) => { h += `<tr><td>${SLOT[s2.tranche]} · <b>${esc(x.coin)}</b><br><span class="muted">${C.fmtKst(x.since)} 매수</span></td><td>${price(x.entry)}</td><td>${price(x.now)}</td><td class="${tone(x.chg)}">${pct(x.chg)}</td><td>${won(x.value)}</td></tr>`; }));
     h += `</table></div>`;
-    const checks = r.sleeves.filter((s) => s.check);
-    h += `<div class="card"><h2>장부 대조 <small>마지막 리밸런스 시점</small></h2><table><tr><th>슬리브</th><th>시점</th><th>장부 값</th><th>화면 계산</th><th>차이</th></tr>`
-      + checks.map((s) => { const k = s.check; const diff = k.fetched == null ? null : k.fetched - k.engine; return `<tr><td>${SLOT[s.tranche]}</td><td>${C.fmtKst(k.t)}</td><td>${won(k.engine)}</td><td>${k.fetched == null ? '시세 없음' : won(k.fetched)}</td><td>${diff == null ? '-' : won(diff)}</td></tr>`; }).join('')
+    const checks = r.sleeves.filter((x) => x.check);
+    h += `<div class="card"><h2>장부 대조 <small>마지막 교체 시점</small></h2><table><tr><th>슬리브</th><th>시점</th><th>장부 값</th><th>화면 계산</th><th>차이</th></tr>`
+      + checks.map((x) => { const k = x.check; const diff = k.fetched == null ? null : k.fetched - k.engine; return `<tr><td>${SLOT[x.tranche]}</td><td>${C.fmtKst(k.t)}</td><td>${won(k.engine)}</td><td>${k.fetched == null ? '시세 없음' : won(k.fetched)}</td><td>${diff == null ? '-' : won(diff)}</td></tr>`; }).join('')
       + `</table><div class="muted">장부 값 = 자동 실행이 기록한 평가액. 화면 계산 = 장부의 보유 수량 × 방금 받은 빗썸 10분봉 시가. 같으면 0원.</div></div>`;
+    const sr = b.stop_rules || {};
+    h += `<div class="card"><h2>멈춤 규칙</h2>` + kv([
+      ['상태', sr.halted ? '<b class="down">멈춤 · ' + esc(sr.halt_reason || '') + '</b>' : sr.k1_relative_dd_now == null ? '4개 슬리브 모두 시작 후 계산' : '정상'],
+      ['균등 보유 대비 고점 하락(현재)', pct(sr.k1_relative_dd_now, 1)],
+      ['지금까지 최대 하락', pct(sr.k1_max_dd, 1)],
+      ['경고 · 멈춤 기준', pct(sr.warn_at, 0) + ' 경고 · ' + pct(sr.halt_at, 0) + ' 멈춤'],
+      (sr.warnings || []).length ? ['경고', esc(sr.warnings.join(', '))] : null,
+      (sr.holds || []).length ? ['보류', esc(sr.holds.join(', '))] : null]) + `<div class="muted">멈춤 규칙은 장부(교체 시점) 값으로 판단합니다.</div></div>`;
     const lr = b.last_run || {};
-    h += `<div class="card"><h2>장부 상태</h2><div class="kv"><div>마지막 자동 실행</div><div>${esc((lr.run_kst || '').replace('T', ' ').slice(5, 16))} KST · ${lr.rc === 0 ? '정상' : '결과 코드 ' + esc(lr.rc)}</div><div>장부</div><div>${b.ledger.events}건 · 해시 체인 ${b.ledger.chain_ok ? '정상' : '<b class="down">이상</b>'}</div><div>멈춤 규칙</div><div>${b.stop_rules && b.stop_rules.halted ? '<b class="down">멈춤</b>' : '정상'} (균등 대비 낙폭 −20% 경고, −36% 멈춤)</div></div></div>`;
+    h += `<div class="card"><h2>자동 실행 상태</h2>` + kv([
+      ['자동 실행 시각', RUN_SLOTS[key] || '-'],
+      ['마지막 실행', ks(lr.run_kst) + ' KST · ' + esc(RC_TEXT[lr.rc] || ('코드 ' + lr.rc))],
+      ['실행 메모', esc(lr.msg || '-')],
+      ['장부 기록 수', b.ledger.events + '건'],
+      ['장부 무결성', b.ledger.chain_ok ? '정상' : '<b class="down">이상</b>']]) + `</div>`;
     return h;
   }
 
   function nmView() {
     const tests = Object.keys(state.data.nm || {});
     if (!tests.length) return '<div class="card">자료 없음</div>';
+    const meta = state.data.nm_meta || {}, D = meta.dash || {}, DT = D.tests || {};
     const t = state.nmTest, x = state.data.nm[t], r = nmResult(t);
     if (!r) return '<div class="card">시세를 받는 중…</div>';
+    const R = {}; tests.forEach((k) => { R[k] = nmResult(k); });
     const n = r.times.length - 1, cap = r.capital, v = r.eq[n];
+    const ret = (k) => R[k].eq[R[k].eq.length - 1] / R[k].capital - 1;
+    const vsBtc = (k) => (1 + ret(k)) / R[k].btc[R[k].btc.length - 1] - 1;
+    let h = `<div class="card"><h2>Numerai 바이낸스는 이런 시험입니다</h2><table><tr><th>시험</th><th>하는 일</th></tr>${tests.map((k) => `<tr><td><b>${esc(k)}</b><br><span class="muted">${esc(NM_SHORT[k] || '')}</span></td><td>${esc(NM_DESC[k] || '')}</td></tr>`).join('')}</table>`
+      + `<div class="txt">세 시험 모두 ${ks(x.start_kst)} KST에 시작하고, 매일 09:00 KST 바이낸스 가격으로 하루 1번 비중을 맞춥니다. 시험마다 모의 원금은 ${usd(cap)}(약 1,000만 원 상당)입니다.</div>`
+      + `<div class="txt">NM-LS의 '펀딩비 받는 코인만 공매도' 규칙은 과거 결과를 본 뒤에 만든 규칙이라, 앞으로의 기록으로 확인하는 것이 이 시험의 목적입니다.</div></div>`;
+    h += `<div class="card"><h2>세 시험 성적</h2><table><tr><th>시험</th><th>원금 대비</th><th>균등 대비<br><span class="muted">장부</span></th><th>BTC 대비</th><th>상태</th></tr>`
+      + tests.map((k) => `<tr><td><b>${esc(k)}</b></td><td class="${tone(ret(k))}">${pct(ret(k))}</td><td class="${tone((DT[k] || {}).vs_ew_pctp)}">${pp((DT[k] || {}).vs_ew_pctp, '%p')}</td><td class="${tone(vsBtc(k))}">${pct(vsBtc(k))}</td><td>${esc(state.data.nm[k].status)}</td></tr>`).join('')
+      + `</table><div class="muted">원금·BTC 대비는 지금 시세로 다시 계산한 값, 균등 대비는 매일 09:00 정산 때 장부 값입니다(같은 대상 코인 50여 개를 똑같은 비중으로 들고 있었을 때).</div></div>`;
+    const nmLv = R['NM-LS'] && R['LV-LS'] ? (ret('NM-LS') - ret('LV-LS')) * 100 : null;
+    h += `<div class="card"><h2>핵심 질문: Numerai가 단순 순위보다 나은가</h2>` + kv([
+      ['NM-LS − LV-LS (원금 대비)', pp(nmLv, '%p') + ' <span class="muted">지금 시세</span>'],
+      ['쌓인 기록', (D.days_booked || 0) + '일 / 판단까지 ' + (D.judge_after_days || 84) + '일(12주)'],
+      ['판단', D.judge_ready ? '판단 가능' : '12주 전에는 판단하지 않음']]) + `</div>`;
     let times = r.times, E = r.eq.map((e) => (e / cap - 1) * 100), Bt = r.btc.map((b) => (b - 1) * 100);
     if (r.older.length) { times = r.older.map((o) => o.t).concat(times); E = r.older.map((o) => o.ret * 100).concat(E); Bt = r.older.map((o) => o.btc * 100).concat(Bt); }
     const c = cut(times, [E, Bt]);
-    let h = `<div class="seg" data-act="nmtest">${tests.map((k) => `<button class="${t === k ? 'on' : ''}" data-v="${k}">${esc(k)}</button>`).join('')}</div>`;
-    h += `<div class="card"><h2>${esc(t)} · ${esc(x.name)} (모의 원금 ${usd(cap)})</h2><div class="metrics">`
+    h += `<div class="seg" data-act="nmtest">${tests.map((k) => `<button class="${t === k ? 'on' : ''}" data-v="${k}">${esc(k)}</button>`).join('')}</div>`;
+    h += `<div class="card"><h2>${esc(t)} · ${esc(x.name)}</h2><div class="metrics">`
       + metric('지금 평가액', usd(v), pct(v / cap - 1) + ' 원금 대비', tone(v / cap - 1))
       + metric('BTC 보유 대비', pct((v / cap) / r.btc[n] - 1), 'BTC ' + pct(r.btc[n] - 1), tone((v / cap) / r.btc[n] - 1))
       + metric('상태', esc(x.status), '장부 정산 평가액 ' + usd(x.ledger_equity))
       + `</div><div class="muted">펀딩비(선물 보유 수수료)는 하루 한 번 정산 때 반영되어 화면 실시간 값에는 빠져 있습니다.</div></div>`;
     h += `<div class="card"><h2>누적 수익률 곡선 <small>원금 대비 %, 10분 단위</small></h2>${rangeSel()}`
       + chart(c.times, [{ name: t, values: c.arrs[0], color: '#2563eb', width: 2.2 }, { name: 'BTC 보유', values: c.arrs[1], color: '#f59e0b' }])
-      + `<div class="muted">매일 09:00 KST에 보유 비중을 다시 정합니다. 10분 단위 이전 구간은 하루 한 점(장부 값).</div></div>`;
+      + `<div class="muted">매일 09:00 KST에 보유 비중을 다시 정합니다. 10분 단위 이전 구간은 하루 한 점(장부 값). 균등 보유 비교는 위 표의 장부 값으로 봅니다.</div></div>`;
+    const T = DT[t] || {}; const isLS = t !== 'NM-L';
+    h += `<div class="card"><h2>시험 상세 <small>장부(09:00 정산) 기준</small></h2>` + kv([
+      ['이름', esc(T.name || x.name)],
+      ['장부 평가액', usd(T.equity_usdt) + ' · ' + pp(T.ret_pct)],
+      [isLS ? '가격 손익 · 펀딩비 · 비용' : '가격 손익 · 비용', isLS ? pp(T.cum_gross_pct) + ' · ' + pp(T.cum_fund_pct) + ' · ' + pp(-T.cum_cost_pct) : pp(T.cum_gross_pct) + ' · ' + pp(-T.cum_cost_pct)],
+      ['고점 대비 하락', pp(T.dd_pct)],
+      isLS ? null : ['균등 보유 대비 상대 하락', pp(T.rel_dd_pct)],
+      [isLS ? '매수 · 공매도 비중' : '매수 비중', isLS ? `${T.gross_long_pct}% (${T.n_long}개) · ${T.gross_short_pct}% (${T.n_short}개)` : `${T.gross_long_pct}% (${T.n_long}개)`],
+      ['오늘 대상 코인 · 채워진 묶음', `${T.n_elig}개 · ${T.tranches_live}/5`],
+      T.holdings_day ? ['비중 기준일', ks(T.holdings_day + 'T09:00') + ' KST'] : null]) + `</div>`;
     h += `<div class="card"><h2>지금 보유 (${C.fmtKst(r.lastBoundary)} 기준 비중)</h2><table><tr><th>코인</th><th>비중</th><th>시작가</th><th>현재가</th><th>기여</th></tr>`
       + r.holdings.map((q) => `<tr><td><b>${esc(q.coin)}</b> <span class="tag ${q.w < 0 ? 'short' : ''}">${q.w < 0 ? '공매도' : '매수'}</span></td><td>${(q.w * 100).toFixed(2)}%</td><td>${price(q.entry)}</td><td>${price(q.now)}</td><td class="${tone(q.contrib)}">${q.contrib == null ? '-' : (q.contrib * 100 >= 0 ? '+' : '') + (q.contrib * 100).toFixed(3) + '%p'}</td></tr>`).join('')
       + `</table><div class="muted">비중 = 자본 대비. 지금은 5개 묶음 중 일부만 채워져 있어 나머지는 현금입니다.</div></div>`;
+    const sr = D.stop_rules || meta.stop_rules || {};
+    h += `<div class="card"><h2>멈춤 규칙</h2>` + kv([
+      ['롱숏 두 시험', `고점 대비 ${sr.ls_warn_dd_pct}% 경고 · ${sr.ls_stop_dd_pct}% 멈춤`],
+      ['현물 매수(NM-L)', `균등 보유 대비 ${sr.l_rel_warn_pct}% 경고 · ${sr.l_rel_stop_pct}% 멈춤, 자체 하락 ${sr.l_abs_warn_pct}%는 경고만`]]
+      .concat(tests.map((k) => [k + ' 상태', esc(state.data.nm[k].status)]))) + `</div>`;
+    const lr = D.last_run || meta.last_run || {}; const sg = D.signal || meta.signal;
+    h += `<div class="card"><h2>실행 상태</h2>` + kv([
+      ['실행 주기', '하루 1번 · 09:00 KST 가격 기준 (09:15 무렵 실행)'],
+      ['마지막 실행', esc(String(lr.at_kst || '-').slice(5)) + ' · ' + esc(lr.status || '') + (lr.msg ? ' · ' + esc(lr.msg) : '')],
+      ['마지막 처리 경계', D.last_boundary_kst ? esc(String(D.last_boundary_kst).slice(5)) : '아직 없음'],
+      sg ? ['사용한 Numerai 파일', `${sg.round}회차 · ${esc(String(sg.data_date).slice(5).replace('-', '/'))} 데이터 · ${esc(String(sg.published_kst).slice(5))} 공개`] : null,
+      ['장부', (D.ledger && D.ledger.ok) || meta.ledger ? '정상 · ' + ((D.ledger && D.ledger.rows) || (meta.ledger || {}).rows) + '건' : '이상']]) + `</div>`;
     return h;
   }
 
   function homeView() {
     let rows = '';
+    const nowMs = state.fetchedAt;
     for (const [k, b] of Object.entries(state.data.a2 || {})) {
-      const r = a2Result(k); const v = r.total.A2[r.times.length - 1], ew = r.total.EW[r.times.length - 1];
-      rows += `<tr data-go="${k}"><td><b>${esc(b.name)}</b><br><span class="muted">빗썸 16개 코인</span></td><td>${won(v)}</td><td class="${tone(v / r.capital - 1)}">${pct(v / r.capital - 1)}</td><td class="${tone(v / ew - 1)}">${pct(v / ew - 1)}</td></tr>`;
+      const r = a2Result(k); const n = r.times.length - 1; const v = r.total.A2[n], ew = r.total.EW[n];
+      const started = r.sleeves.filter((s) => s.started).length;
+      const pend = (b.ledger_sleeves || []).some((ls) => pendingNote(ls, nowMs));
+      const st = b.stop_rules && b.stop_rules.halted ? '<b class="down">멈춤</b>' : (b.stop_rules && (b.stop_rules.warnings || []).length ? '운용 중 · 경고' : '운용 중 · 슬리브 ' + started + '/4') + (pend ? '<br><span class="tag warn">기록 대기 있음</span>' : '');
+      rows += `<tr data-go="${k}"><td><b>${esc(b.name)}</b><br><span class="muted">빗썸 16개 코인</span></td><td>${won(v)}</td><td class="${tone(v / r.capital - 1)}">${pct(v / r.capital - 1)}</td><td class="${tone(v / ew - 1)}">${pct(v / ew - 1)}<br><span class="muted">균등 대비</span></td><td>${st}</td></tr>`;
     }
     for (const [k, x] of Object.entries(state.data.nm || {})) {
-      const r = nmResult(k); if (!r) continue; const v = r.eq[r.times.length - 1];
-      rows += `<tr data-go="nm" data-t="${k}"><td><b>${esc(k)}</b><br><span class="muted">${esc(x.name)}</span></td><td>${usd(v)}</td><td class="${tone(v / r.capital - 1)}">${pct(v / r.capital - 1)}</td><td class="${tone((v / r.capital) / r.btc[r.times.length - 1] - 1)}">${pct((v / r.capital) / r.btc[r.times.length - 1] - 1)}<br><span class="muted">BTC 대비</span></td></tr>`;
+      const r = nmResult(k); if (!r) continue; const n = r.times.length - 1; const v = r.eq[n];
+      rows += `<tr data-go="nm" data-t="${k}"><td><b>${esc(k)}</b><br><span class="muted">${esc(NM_SHORT[k] || x.name)}</span></td><td>${usd(v)}</td><td class="${tone(v / r.capital - 1)}">${pct(v / r.capital - 1)}</td><td class="${tone((v / r.capital) / r.btc[n] - 1)}">${pct((v / r.capital) / r.btc[n] - 1)}<br><span class="muted">BTC 대비</span></td><td>${esc(x.status === '정상' ? '운용 중' : x.status)}</td></tr>`;
     }
-    return `<div class="card"><h2>모든 시험 · 지금 평가</h2><table><tr><th>시험</th><th>평가액</th><th>원금 대비</th><th>비교 대비</th></tr>${rows}</table><div class="muted">A2 계열의 비교 대상은 16개 균등 보유, Numerai는 BTC 보유. 줄을 누르면 자세히 봅니다.</div></div>`
-      + `<div class="card"><h2>숫자가 바뀌는 방식</h2><div class="kv"><div>평가액·곡선</div><div>이 화면을 열거나 새로고침을 누를 때 공개 시세로 바로 다시 계산 (열어 두면 10분마다 자동)</div><div>보유 코인</div><div>자동 실행이 장부를 갱신할 때 바뀜 (A2 하루 4번, Numerai 하루 1번)</div><div>자료 파일</div><div>${esc(String(state.data.generated_kst).replace('T', ' ').slice(5, 16))} KST에 만듦</div></div></div>`;
+    const a2b = Object.values(state.data.a2 || {})[0], meta = state.data.nm_meta || {};
+    return `<div class="card"><h2>모든 시험 요약 · 지금 평가</h2><table><tr><th>시험</th><th>평가액</th><th>원금 대비</th><th>비교</th><th>상태</th></tr>${rows}</table><div class="muted">A2와 A2-W26은 빗썸 16개 코인 균등 보유와, Numerai 세 시험은 BTC 보유와 비교합니다(Numerai의 균등 보유 비교는 Numerai 탭). 줄을 누르면 자세히 봅니다.</div></div>`
+      + `<div class="card"><h2>시작과 갱신</h2>` + kv([
+        ['A2 · A2-W26', `11/22 18:00 KST 시작 · 장부는 하루 4번 갱신 · 마지막 ${a2b && a2b.last_run ? ks(a2b.last_run.run_kst) : '-'} KST`],
+        ['Numerai 바이낸스', `${a2b ? '' : ''}${ks((Object.values(state.data.nm || {})[0] || {}).start_kst)} KST 시작 · 장부는 하루 1번 갱신 · 마지막 ${esc(String(meta.generated_kst || '-').slice(5))}`],
+        ['평가액·곡선', '이 화면을 열거나 새로고침을 누를 때 공개 시세로 바로 다시 계산 (열어 두면 10분마다 자동)'],
+        ['판단 시점', '어느 시험이든 12주가 쌓이기 전에는 낫다·못하다를 판단하지 않습니다'],
+        ['자료 파일', ks(state.data.generated_kst) + ' KST에 만듦']]) + `</div>`;
   }
 
   function render() {
@@ -287,6 +395,7 @@
       if (b.parentElement.id === 'tabs') state.tab = v;
       else if (act === 'range') state.range = v;
       else if (act === 'a2view') state.a2View[b.parentElement.dataset.k] = v;
+      else if (act === 'a2slot') state.a2Slot[b.parentElement.dataset.k] = v;
       else if (act === 'nmtest') state.nmTest = v;
       render(); return;
     }
