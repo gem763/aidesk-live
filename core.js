@@ -159,6 +159,14 @@
     }
     return { fut: [...fut], spot: [...spot] };
   }
+  function neededTrendSymbols(tr) {
+    const fut = new Set();
+    for (const t of Object.values(tr || {})) {
+      for (const s of t.segments || []) for (const c of Object.keys(s.W || {})) fut.add(t.pmap[c] || c + 'USDT');
+      fut.add(t.pmap && t.pmap.BTC ? t.pmap.BTC : 'BTCUSDT');
+    }
+    return [...fut];
+  }
 
-  G.LiveCore = { STEP, parseKst, fmtKst, fmtKstFull, makeSeries, grid, a2Compute, nmCompute, neededNmSymbols };
+  G.LiveCore = { STEP, parseKst, fmtKst, fmtKstFull, makeSeries, grid, a2Compute, nmCompute, neededNmSymbols, neededTrendSymbols };
 })(typeof window !== 'undefined' ? window : globalThis);

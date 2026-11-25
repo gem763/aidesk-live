@@ -4,7 +4,7 @@
   const C = window.LiveCore;
   const $ = (s) => document.querySelector(s);
   const PASS_KEY = 'aidesk_live_pass';
-  const state = { data: null, tab: 'home', a2View: { A2: 'total', A2W26: 'total' }, a2Slot: { A2: '18h', A2W26: '18h' }, nmTest: 'NM-LS', range: 'all', px: null, nmPx: null, fetchedAt: null, source: '', warn: [] };
+  const state = { data: null, tab: 'home', a2View: { A2: 'total', A2W26: 'total' }, a2Slot: { A2: '18h', A2W26: '18h' }, nmTest: 'NM-LS', trTest: 'T25', range: 'all', px: null, nmPx: null, fetchedAt: null, source: '', warn: [] };
 
   /* ---------- crypto ---------- */
   const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -85,9 +85,12 @@
   }
   async function fetchNmPrices(d, progress) {
     const nm = d.nm || {};
-    if (!Object.keys(nm).length) return {};
+    const tr = d.trend || {};
+    if (!Object.keys(nm).length && !Object.keys(tr).length) return {};
     const need = C.neededNmSymbols(nm);
-    const from = Math.min(...Object.values(nm).map((t) => windowStart(t.start_kst, 7)));
+    for (const s of (C.neededTrendSymbols(tr) || [])) if (!need.fut.includes(s)) need.fut.push(s);
+    const starts = Object.values(nm).map((t) => windowStart(t.start_kst, 7)).concat(Object.values(tr).map((t) => windowStart(t.start_kst, 7)));
+    const from = Math.min(...starts);
     const out = { fut: {}, spot: {} }; const jobs = need.fut.map((s) => ['fut', s]).concat(need.spot.map((s) => ['spot', s])); let done = 0;
     const errs = [];
     await pool(jobs, 6, async ([m, s]) => { try { out[m][s] = C.makeSeries(await binanceKlines(m, s, from)); } catch (e) { errs.push(s); } progress(++done, jobs.length, '바이낸스'); });
@@ -163,6 +166,10 @@
     const x = state.data.nm[t]; if (!x || !state.nmPx) return null;
     return C.nmCompute(x, state.nmPx[x.market] || {}, { nowMs: state.fetchedAt, lastPriceT: state.fetchedAt });
   }
+  function trendResult(t) {
+    const x = state.data.trend && state.data.trend[t]; if (!x || !state.nmPx) return null;
+    return C.nmCompute(x, state.nmPx.fut || {}, { nowMs: state.fetchedAt, lastPriceT: state.fetchedAt });
+  }
   const metric = (label, value, detail, tn) => `<div class="metric"><div class="ml">${label}</div><div class="mv ${tn || ''}">${value}</div><div class="md">${detail || ''}</div></div>`;
 
   const ABOUT = {
@@ -170,6 +177,11 @@
     A2W26: 'A2와 규칙이 같고 한 가지만 다릅니다. 매주 월요일 조합을 고를 때 최근 26주만 봄(A2는 최근 2년). 기존 A2와 별개의 시험이며 서로의 결과로 규칙을 바꾸지 않습니다.',
   };
   const NM_SHORT = { 'NM-LS': 'Numerai 롱숏', 'LV-LS': '단순 순위 롱숏', 'NM-L': 'Numerai 현물 매수' };
+  const TR_SHORT = { T25: '하루 추세 25%', T40: '하루 추세 40%' };
+  const TR_DESC = {
+    T25: '바이낸스 선물 12개 코인 롱숏. 지난 24시간 움직임이 최근 30일 중 상위 5%로 강할 때만 그 방향으로 바꾸고, 그 사이에는 들고 갑니다. 비중은 하루 한 번, 방향 점검은 12시간마다. 계좌 출렁임 목표는 연 25%이며 규모는 0.25~2배로 제한합니다. 코인별 손절·익절은 없습니다.',
+    T40: '규칙이 T25와 같고, 계좌 출렁임 목표만 연 40%입니다.',
+  };
   const NM_DESC = {
     'NM-LS': '바이낸스 선물. Numerai 순위 상위 20% 매수, 하위 20% 중 공매도 수수료(펀딩비)를 받는 코인만 공매도.',
     'LV-LS': 'NM-LS와 똑같고, 순위만 Numerai 대신 \'덜 흔들리는 코인\' 순으로 매김.',
@@ -322,6 +334,56 @@
     return h;
   }
 
+
+  function trendView() {
+    const tests = Object.keys(state.data.trend || {});
+    if (!tests.length) return '<div class="card">자료 없음</div>';
+    const meta = state.data.trend_meta || {}, D = meta.dash || {}, DT = D.tests || {};
+    const t = state.trTest, x = state.data.trend[t], r = trendResult(t);
+    if (!r) return '<div class="card">시세를 받는 중…</div>';
+    const R = {}; tests.forEach((k) => { R[k] = trendResult(k); });
+    const n = r.times.length - 1, cap = r.capital, v = r.eq[n];
+    const ret = (k) => R[k].eq[R[k].eq.length - 1] / R[k].capital - 1;
+    const vsBh = (k) => (1 + ret(k)) / R[k].btc[R[k].btc.length - 1] - 1;
+    let h = `<div class="card"><h2>하루 추세 롱숏은 이런 시험입니다</h2><table><tr><th>시험</th><th>하는 일</th></tr>${tests.map((k) => `<tr><td><b>${esc(k)}</b><br><span class="muted">${esc(TR_SHORT[k] || '')}</span></td><td>${esc(TR_DESC[k] || '')}</td></tr>`).join('')}</table>`
+      + `<div class="txt">두 시험 모두 ${ks(x.start_kst)} KST에 시작했고, 방향은 매일 09:00·21:00 KST 시세(다음 봉 시가)로 점검합니다. 루틴은 그 5분 뒤(09:05, 21:05)에 실행합니다. 시험마다 모의 원금은 ${won(cap)}입니다. 비교 선은 같은 12개 코인을 출렁임 역수 비중으로 사서 들고 있는 경우입니다.</div>`
+      + `<div class="txt">이 장부는 앞으로의 기록을 쌓아 보는 관찰용입니다. 과거 시험에서 잘 나왔다고 해서 앞으로도 그럴지는 아직 모릅니다. 최소 6개월은 지켜본 뒤에 판단합니다.</div></div>`;
+    h += `<div class="card"><h2>두 시험 성적</h2><table><tr><th>시험</th><th>원금 대비</th><th>단순 보유 대비</th><th>상태</th></tr>`
+      + tests.map((k) => `<tr><td><b>${esc(k)}</b></td><td class="${tone(ret(k))}">${pct(ret(k))}</td><td class="${tone(vsBh(k))}">${pct(vsBh(k))}</td><td>${esc(state.data.trend[k].status || '관찰 중')}</td></tr>`).join('')
+      + `</table><div class="muted">지금 시세로 다시 계산한 값입니다. 단순 보유는 같은 12개 코인을 사서 계속 들고 있는 경우입니다. 펀딩비는 12시간마다 정산될 때 반영되어, 화면의 실시간 값에는 아직 없을 수 있습니다.</div></div>`;
+    let times = r.times, E = r.eq.map((e) => (e / cap - 1) * 100), Bt = r.btc.map((b) => (b - 1) * 100);
+    if (r.older.length) { times = r.older.map((o) => o.t).concat(times); E = r.older.map((o) => o.ret * 100).concat(E); Bt = r.older.map((o) => o.btc * 100).concat(Bt); }
+    const c = cut(times, [E, Bt]);
+    h += `<div class="seg" data-act="trtest">${tests.map((k) => `<button class="${t === k ? 'on' : ''}" data-v="${k}">${esc(k)} · ${esc(TR_SHORT[k] || '')}</button>`).join('')}</div>`;
+    h += `<div class="card"><h2>${esc(t)} · ${esc(x.name)}</h2><div class="metrics">`
+      + metric('지금 평가액', won(v), pct(v / cap - 1) + ' 원금 대비', tone(v / cap - 1))
+      + metric('단순 보유 대비', pct((v / cap) / r.btc[n] - 1), '단순 보유 ' + pct(r.btc[n] - 1), tone((v / cap) / r.btc[n] - 1))
+      + metric('지금 규모', (x.scale != null ? (x.scale).toFixed(2) + '배' : '-'), '총노출 ' + (x.gross != null ? (x.gross * 100).toFixed(1) + '%' : '-'))
+      + `</div><div class="muted">장부(마지막 점검 시점) 평가액 ${won(x.ledger_equity)}. 위 숫자는 같은 보유를 방금 받은 시세로 다시 평가한 값입니다. 모의 계산이며 실제 성과가 아닙니다.</div></div>`;
+    h += `<div class="card"><h2>누적 수익률 곡선 <small>원금 대비 %, 10분 단위</small></h2>${rangeSel()}`
+      + chart(c.times, [{ name: TR_SHORT[t] || t, values: c.arrs[0], color: '#2563eb', width: 2.2 }, { name: '동일위험 단순 보유', values: c.arrs[1], color: '#f59e0b' }])
+      + `<div class="muted">방향 점검은 12시간마다, 코인 비중은 하루 한 번입니다. 10분 단위 이전 구간은 점검 시점 장부 값입니다.</div></div>`;
+    const T = DT[t] || {};
+    h += `<div class="card"><h2>시험 상세 <small>마지막 점검 장부 기준</small></h2>` + kv([
+      ['이름', esc(T.name || x.name)],
+      ['장부 평가액', won(T.equity_krw) + ' · ' + pp(T.ret_pct)],
+      ['규모(출렁임 맞추기)', (T.scale != null ? Number(T.scale).toFixed(3) + '배 (상한 2배)' : '-')],
+      ['총노출 · 매수 · 공매도', `${pp((T.gross || 0) * 100).replace('%','')}% · ${T.gross_long_pct}% (${T.n_long}개) · ${T.gross_short_pct}% (${T.n_short}개)`.replace('++','+')],
+      ['누적 비용 · 펀딩비', pp(-T.cum_cost_pct) + ' · ' + pp(T.cum_fund_pct)],
+      ['고점 대비 하락', pp(T.dd_pct)],
+      T.holdings_boundary ? ['마지막 점검', ks(T.holdings_boundary) + ' KST'] : null]) + `</div>`;
+    h += `<div class="card"><h2>지금 보유 (${C.fmtKst(r.lastBoundary)} 기준 비중)</h2><table><tr><th>코인</th><th>비중</th><th>시작가</th><th>현재가</th><th>기여</th></tr>`
+      + r.holdings.map((q) => `<tr><td><b>${esc(q.coin)}</b> <span class="tag ${q.w < 0 ? 'short' : ''}">${q.w < 0 ? '공매도' : '매수'}</span></td><td>${(q.w * 100).toFixed(2)}%</td><td>${price(q.entry)}</td><td>${price(q.now)}</td><td class="${tone(q.contrib)}">${q.contrib == null ? '-' : (q.contrib * 100 >= 0 ? '+' : '') + (q.contrib * 100).toFixed(3) + '%p'}</td></tr>`).join('')
+      + `</table><div class="muted">비중 = 모의 원금 대비. 지금은 시장이 한쪽으로 기울어 매수·공매도 개수가 비슷하지 않을 수 있습니다.</div></div>`;
+    const lr = (D.last_run || meta.last_run || {});
+    h += `<div class="card"><h2>실행 상태</h2>` + kv([
+      ['실행 주기', '하루 2번 · 09:05, 21:05 KST (09:00·21:00 시가 기준)'],
+      ['마지막 실행', esc(String(lr.at_kst || '-').slice(5)) + ' · ' + esc(lr.status || '')],
+      ['마지막 처리 경계', meta.last_boundary_kst ? esc(String(meta.last_boundary_kst).replace('T', ' ').slice(5)) : '아직 없음'],
+      ['장부', (meta.ledger && meta.ledger.ok) ? '정상 · ' + (meta.ledger.rows || 0) + '건' : '확인 필요']]) + `</div>`;
+    return h;
+  }
+
   function homeView() {
     let rows = '';
     const nowMs = state.fetchedAt;
@@ -336,11 +398,16 @@
       const r = nmResult(k); if (!r) continue; const n = r.times.length - 1; const v = r.eq[n];
       rows += `<tr data-go="nm" data-t="${k}"><td><b>${esc(k)}</b><br><span class="muted">${esc(NM_SHORT[k] || x.name)}</span></td><td>${usd(v)}</td><td class="${tone(v / r.capital - 1)}">${pct(v / r.capital - 1)}</td><td class="${tone((v / r.capital) / r.btc[n] - 1)}">${pct((v / r.capital) / r.btc[n] - 1)}<br><span class="muted">BTC 대비</span></td><td>${esc(x.status === '정상' ? '운용 중' : x.status)}</td></tr>`;
     }
-    const a2b = Object.values(state.data.a2 || {})[0], meta = state.data.nm_meta || {};
-    return `<div class="card"><h2>모든 시험 요약 · 지금 평가</h2><table><tr><th>시험</th><th>평가액</th><th>원금 대비</th><th>비교</th><th>상태</th></tr>${rows}</table><div class="muted">A2와 A2-W26은 빗썸 16개 코인 균등 보유와, Numerai 세 시험은 BTC 보유와 비교합니다(Numerai의 균등 보유 비교는 Numerai 탭). 줄을 누르면 자세히 봅니다.</div></div>`
+    for (const [k, x] of Object.entries(state.data.trend || {})) {
+      const r = trendResult(k); if (!r) continue; const n = r.times.length - 1; const v = r.eq[n];
+      rows += `<tr data-go="trend" data-t="${k}"><td><b>${esc(k)}</b><br><span class="muted">${esc(TR_SHORT[k] || x.name)}</span></td><td>${won(v)}</td><td class="${tone(v / r.capital - 1)}">${pct(v / r.capital - 1)}</td><td class="${tone((v / r.capital) / r.btc[n] - 1)}">${pct((v / r.capital) / r.btc[n] - 1)}<br><span class="muted">단순 보유 대비</span></td><td>관찰 중</td></tr>`;
+    }
+    const a2b = Object.values(state.data.a2 || {})[0], meta = state.data.nm_meta || {}, tmeta = state.data.trend_meta || {};
+    return `<div class="card"><h2>모든 시험 요약 · 지금 평가</h2><table><tr><th>시험</th><th>평가액</th><th>원금 대비</th><th>비교</th><th>상태</th></tr>${rows}</table><div class="muted">A2와 A2-W26은 빗썸 16개 코인 균등 보유와, Numerai 세 시험은 BTC 보유와, 하루 추세 두 시험은 같은 12개 코인 단순 보유와 비교합니다. 줄을 누르면 자세히 봅니다. 모두 모의 계산이며 실제 성과가 아닙니다.</div></div>`
       + `<div class="card"><h2>시작과 갱신</h2>` + kv([
         ['A2 · A2-W26', `11/22 18:00 KST 시작 · 장부는 하루 4번 갱신 · 마지막 ${a2b && a2b.last_run ? ks(a2b.last_run.run_kst) : '-'} KST`],
-        ['Numerai 바이낸스', `${a2b ? '' : ''}${ks((Object.values(state.data.nm || {})[0] || {}).start_kst)} KST 시작 · 장부는 하루 1번 갱신 · 마지막 ${esc(String(meta.generated_kst || '-').slice(5))}`],
+        ['Numerai 바이낸스', `${ks((Object.values(state.data.nm || {})[0] || {}).start_kst)} KST 시작 · 장부는 하루 1번 갱신 · 마지막 ${esc(String(meta.generated_kst || '-').slice(5))}`],
+        Object.keys(state.data.trend || {}).length ? ['하루 추세 롱숏', `${ks((Object.values(state.data.trend || {})[0] || {}).start_kst)} KST 시작 · 장부는 하루 2번(09:05·21:05) 갱신 · 마지막 ${esc(String(tmeta.generated_kst || '-').slice(5))}`] : null,
         ['평가액·곡선', '이 화면을 열거나 새로고침을 누를 때 공개 시세로 바로 다시 계산 (열어 두면 10분마다 자동)'],
         ['판단 시점', '어느 시험이든 12주가 쌓이기 전에는 낫다·못하다를 판단하지 않습니다'],
         ['자료 파일', ks(state.data.generated_kst) + ' KST에 만듦']]) + `</div>`;
@@ -348,13 +415,13 @@
 
   function render() {
     const d = state.data; if (!d) return;
-    const tabs = [['home', '한눈에']].concat(Object.entries(d.a2 || {}).map(([k, b]) => [k, b.name])).concat(Object.keys(d.nm || {}).length ? [['nm', 'Numerai 바이낸스']] : []);
+    const tabs = [['home', '한눈에']].concat(Object.entries(d.a2 || {}).map(([k, b]) => [k, b.name])).concat(Object.keys(d.nm || {}).length ? [['nm', 'Numerai 바이낸스']] : []).concat(Object.keys(d.trend || {}).length ? [['trend', '하루 추세']] : []);
     $('#tabs').innerHTML = tabs.map(([v, l]) => `<button class="${state.tab === v ? 'on' : ''}" data-v="${v}">${esc(l)}</button>`).join('');
     const src = state.px && state.px.source === 'bithumb' ? '빗썸 원화 공개 시세 10분봉' : state.px && state.px.source === 'binance-ratio' ? '<b class="down">빗썸 접속 실패</b> → 바이낸스 달러 시세의 등락률로 추정' : '-';
-    const a2b = Object.values(d.a2 || {})[0]; const lrA = a2b && a2b.last_run ? String(a2b.last_run.run_kst || '').replace('T', ' ').slice(5, 16) : '-'; const lrN = d.nm_meta ? String(d.nm_meta.generated_kst || '').slice(5, 16) : '-';
-    $('#meta').innerHTML = `시세 기준 <b>${C.fmtKst(state.fetchedAt)} KST</b> · 장부 A2 ${esc(lrA)} · Numerai ${esc(lrN)} KST<br>평가 시세: A2 계열 ${src}, Numerai 바이낸스 공개 시세` + (state.warn.length ? `<br><span class="down">${esc(state.warn.join(' / '))}</span>` : '');
+    const a2b = Object.values(d.a2 || {})[0]; const lrA = a2b && a2b.last_run ? String(a2b.last_run.run_kst || '').replace('T', ' ').slice(5, 16) : '-'; const lrN = d.nm_meta ? String(d.nm_meta.generated_kst || '').slice(5, 16) : '-'; const lrT = d.trend_meta ? String(d.trend_meta.generated_kst || '').slice(5, 16) : '-';
+    $('#meta').innerHTML = `시세 기준 <b>${C.fmtKst(state.fetchedAt)} KST</b> · 장부 A2 ${esc(lrA)} · Numerai ${esc(lrN)} · 하루 추세 ${esc(lrT)} KST<br>평가 시세: A2 계열 ${src}, Numerai·하루 추세 바이낸스 공개 시세` + (state.warn.length ? `<br><span class="down">${esc(state.warn.join(' / '))}</span>` : '');
     let h = '';
-    if (state.tab === 'home') h = homeView(); else if (state.tab === 'nm') h = nmView(); else h = a2View(state.tab);
+    if (state.tab === 'home') h = homeView(); else if (state.tab === 'nm') h = nmView(); else if (state.tab === 'trend') h = trendView(); else h = a2View(state.tab);
     $('#main').innerHTML = h; bindCharts();
   }
 
@@ -397,10 +464,11 @@
       else if (act === 'a2view') state.a2View[b.parentElement.dataset.k] = v;
       else if (act === 'a2slot') state.a2Slot[b.parentElement.dataset.k] = v;
       else if (act === 'nmtest') state.nmTest = v;
+      else if (act === 'trtest') state.trTest = v;
       render(); return;
     }
     const tr = ev.target.closest('tr[data-go]');
-    if (tr) { state.tab = tr.dataset.go; if (tr.dataset.t) state.nmTest = tr.dataset.t; render(); window.scrollTo(0, 0); }
+    if (tr) { state.tab = tr.dataset.go; if (tr.dataset.t) { if (tr.dataset.go === 'trend') state.trTest = tr.dataset.t; else state.nmTest = tr.dataset.t; } render(); window.scrollTo(0, 0); }
   });
   $('#refresh').addEventListener('click', refresh);
   $('#lockform').addEventListener('submit', (ev) => { ev.preventDefault(); unlock($('#pw').value.trim(), $('#remember').checked); });
