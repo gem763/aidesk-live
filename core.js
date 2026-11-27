@@ -168,5 +168,19 @@
     return [...fut];
   }
 
-  G.LiveCore = { STEP, parseKst, fmtKst, fmtKstFull, makeSeries, grid, a2Compute, nmCompute, neededNmSymbols, neededTrendSymbols };
+
+  /* ---------- DL-23: 10시 비교 보조 계산(순수 함수) ----------
+     series: ledger [[at_kst, cumRet, ret, bhCum], ...] (시간순). stepAt: T 이전 마지막 장부 점의 누적 수익률(없으면 0). */
+  function stepAt(series, T) {
+    let v = 0;
+    for (const r of series || []) { if (parseKst(r[0]) <= T) v = r[1]; else break; }
+    return v;
+  }
+  const maxDrawdown = (vals) => { let pk = -Infinity, dd = 0; for (const v of vals) { if (!isFinite(v)) continue; pk = Math.max(pk, v); dd = Math.min(dd, v / pk - 1); } return dd; };
+  /* 같은 격자의 두 곡선(원) 차이를 원금 대비 %p 로 */
+  const diffPct = (eqA, eqP, capital) => eqA.map((v, i) => ((v - eqP[i]) / capital) * 100);
+  /* 기준 시점(startMs)부터 다시 센 누적 수익률(%)  x: 기존 누적 수익률(소수) 배열 */
+  const rebasePct = (xs, x0) => xs.map((x) => ((1 + x) / (1 + x0) - 1) * 100);
+
+  G.LiveCore = { STEP, parseKst, fmtKst, fmtKstFull, makeSeries, grid, a2Compute, nmCompute, neededNmSymbols, neededTrendSymbols, stepAt, maxDrawdown, diffPct, rebasePct };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -4,7 +4,7 @@
   const C = window.LiveCore;
   const $ = (s) => document.querySelector(s);
   const PASS_KEY = 'aidesk_live_pass';
-  const state = { data: null, tab: 'home', a2View: { A2: 'total', A2W26: 'total' }, a2Slot: { A2: '18h', A2W26: '18h' }, nmTest: 'NM-LS', trTest: 'T25', range: 'all', px: null, nmPx: null, fetchedAt: null, source: '', warn: [] };
+  const state = { data: null, tab: 'home', a2View: { A2: 'total', A2W26: 'total' }, a2Slot: { A2: '18h', A2W26: '18h' }, nmTest: 'NM-LS', trTest: 'T25', aiLog: null, range: 'all', px: null, nmPx: null, fetchedAt: null, source: '', warn: [] };
 
   /* ---------- crypto ---------- */
   const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -85,7 +85,7 @@
   }
   async function fetchNmPrices(d, progress) {
     const nm = d.nm || {};
-    const tr = d.trend || {};
+    const tr = Object.assign({}, d.trend || {}, d.ai || {});
     if (!Object.keys(nm).length && !Object.keys(tr).length) return {};
     const need = C.neededNmSymbols(nm);
     for (const s of (C.neededTrendSymbols(tr) || [])) if (!need.fut.includes(s)) need.fut.push(s);
@@ -168,6 +168,10 @@
   }
   function trendResult(t) {
     const x = state.data.trend && state.data.trend[t]; if (!x || !state.nmPx) return null;
+    return C.nmCompute(x, state.nmPx.fut || {}, { nowMs: state.fetchedAt, lastPriceT: state.fetchedAt });
+  }
+  function aiResult(k) {
+    const x = state.data.ai && state.data.ai[k]; if (!x || !state.nmPx) return null;
     return C.nmCompute(x, state.nmPx.fut || {}, { nowMs: state.fetchedAt, lastPriceT: state.fetchedAt });
   }
   const metric = (label, value, detail, tn) => `<div class="metric"><div class="ml">${label}</div><div class="mv ${tn || ''}">${value}</div><div class="md">${detail || ''}</div></div>`;
@@ -384,6 +388,101 @@
     return h;
   }
 
+
+  /* ---------- DL-23: 10시 비교 (T25 09시 / 10시 순수 / 10시 AI) ---------- */
+  const AI_BADGE = { ok: ['봇 의견 반영', ''], base_only: ['기본안 그대로', 'warn'], rejected_late: ['시한 초과 · 기본안 그대로', 'warn'] };
+  function aiLogHtml() {
+    const lg = state.aiLog;
+    if (!lg || !(lg.days || []).length) return '<div class="muted">아직 봇 의견 기록이 없습니다. 첫 기록은 시범 첫날(11/28) 10시 전에 올라옵니다.</div>';
+    const days = lg.days.slice().reverse();
+    const one = (dd) => {
+      const b = AI_BADGE[dd.status] || [esc(dd.status), 'warn'];
+      const cs = Object.entries(dd.coins || {});
+      const adj = cs.filter(([, e]) => e.m !== 1);
+      const roles = dd.roles || {};
+      const rl = ['QR', 'MI', 'SK'].map((r) => { const q = roles[r] || {}; const nm = { QR: '퀀트', MI: '마켓인텔', SK: '회의론자' }[r]; const st = r === 'SK' && q.needed === false ? '생략(조용한 날)' : q.valid ? '정상' + (q.received_kst ? ' ' + esc((String(q.received_kst).match(/\d\d:\d\d/) || [''])[0]) : '') : (q.late ? '지각' : '없음/무효'); return `${nm} ${st}`; }).join(' · ');
+      let t = `<h3>${esc(dd.day)} <span class="tag ${b[1]}">${b[0]}</span> <span class="muted">봉인 ${esc(String(dd.sealed_kst || '').slice(11, 16))}${dd.seal_target_met ? '' : ' (09:55 넘김)'}</span></h3><div class="muted">${rl}${dd.status_reason ? '<br>' + esc(dd.status_reason) : ''}</div>`;
+      if (!adj.length) return t + '<div class="muted">조정 없음 · 12개 코인 전부 기본안 그대로</div>';
+      t += `<table><tr><th>코인</th><th>비중 기본→AI</th><th>배수</th><th>근거 · 출처</th><th>이후 24시간</th></tr>`
+        + adj.map(([c, e]) => `<tr><td><b>${esc(c)}</b><br><span class="muted">${e.base_w < 0 ? '공매도' : '매수'}</span></td><td>${(e.base_w * 100).toFixed(2)}% → ${(e.ai_w * 100).toFixed(2)}%</td><td><b>${Number(e.m).toFixed(2)}</b></td><td>${esc(e.why || '')}<br><span class="muted">제안 ${esc((e.proposed_by || []).join(', ') || '-')}${(e.challenged_by || []).length ? ' · 반박 ' + esc(e.challenged_by.join(', ')) : ''} · 출처 ${esc((e.sources || []).join(', ') || '-')}</span></td><td>${e.ret24h_after == null ? '<span class="muted">대기</span>' : `<span class="${tone(e.ret24h_after)}">${pct(e.ret24h_after)}</span><br><span class="muted">효과 ${pp(e.effect_pctp, '%p')}</span>`}</td></tr>`).join('') + '</table>';
+      const si = dd.source_index || {}; const used = [...new Set(adj.flatMap(([, e]) => e.sources || []))].filter((i) => si[i]);
+      if (used.length) t += `<div class="muted">출처 ` + used.map((i) => `${esc(i)}: ${esc(si[i].title || '')} (${esc(si[i].src || '')})`).join(' · ') + `</div>`;
+      return t + `<div class="muted">나머지 ${cs.length - adj.length}개 코인은 기본안 그대로.</div>`;
+    };
+    return days.slice(0, 5).map(one).join('') + (days.length > 5 ? `<details><summary>이전 기록 ${days.length - 5}일</summary>${days.slice(5).map(one).join('')}</details>` : '');
+  }
+  function aiBars(daily) {
+    if (!daily || !daily.length) return '<div class="muted">끝난 날이 생기면 막대가 나타납니다(하루 = 10시~다음 날 10시).</div>';
+    const W = 340, H = 120, L = 40, R = 8, T = 8, B = 20, n = daily.length;
+    const mx = Math.max(0.05, ...daily.map((d) => Math.abs(d.diff_pp)));
+    const bw = Math.min(26, (W - L - R) / n - 4), y0 = T + (H - T - B) / 2, sc = ((H - T - B) / 2) / mx;
+    let s = `<svg viewBox="0 0 ${W} ${H}" class="chart"><line x1="${L}" x2="${W - R}" y1="${y0}" y2="${y0}" class="zero"/><text x="${L - 4}" y="${T + 8}" class="ax" text-anchor="end">+${mx.toFixed(2)}</text><text x="${L - 4}" y="${H - B}" class="ax" text-anchor="end">-${mx.toFixed(2)}</text>`;
+    daily.forEach((d, i) => { const x = L + 6 + i * ((W - L - R) / n), h = d.diff_pp * sc; s += `<rect x="${x}" y="${h >= 0 ? y0 - h : y0}" width="${bw}" height="${Math.max(1, Math.abs(h))}" fill="${d.diff_pp >= 0 ? '#dc2626' : '#2563eb'}"/>` + (n <= 14 ? `<text x="${x + bw / 2}" y="${H - 6}" class="ax" text-anchor="middle">${esc(d.day.slice(5))}</text>` : ''); });
+    return s + '</svg>';
+  }
+  function aiView() {
+    const meta = state.data.ai_meta || {}, A = state.data.ai || {};
+    let h = `<div class="card"><h2>10시 비교 · 봇 의견은 도움이 될까?</h2><div class="txt">같은 기본안(T25 신호)을 <b>10:00 KST 시가</b>에 잡는 장부 두 개를 나란히 둡니다. <b>10시 순수</b>는 기본안 그대로, <b>10시 AI</b>는 09:05에 퀀트 리서처·마켓 인텔·회의론자가 낸 의견으로 코인별 규모만 0~1.5배 조정합니다(방향은 못 바꿈). 시각·가격·비용이 같아서 두 장부의 차이가 곧 <b>봇 의견만의 효과</b>입니다. 기존 T25(09시 적용)는 참고로 그대로 둡니다. 21:00 방향 점검은 봇 없이 양쪽 모두 기본 규칙대로 합니다.</div>`
+      + `<div class="note">시범 3일(11/28~11/30)은 호출·시한·사용량 점검용입니다. 6개월(일별 관측 180개) 전에는 낫다·못하다를 판단하지 않습니다. 모두 모의 계산이며 실제 성과가 아닙니다.</div></div>`;
+    const rA = aiResult('T25-10A'), rP = aiResult('T25-10P'), rB = aiResult('BH10');
+    if (!rA || !rP || !rB) {
+      return h + `<div class="card"><h2>시작 전</h2><div class="txt">첫 체결은 ${esc(ks(meta.start_kst))} KST 입니다. 시작되면 이 화면에 세 장부가 나란히 나타납니다.</div></div><div class="card"><h2>봇 조정 기록 <small>공개</small></h2>${aiLogHtml()}</div>`;
+    }
+    const cap = rA.capital, n = rA.times.length - 1;
+    const startMs = C.parseKst(meta.start_kst);
+    const tr = trendResult('T25'), trS = (state.data.trend && state.data.trend.T25 && state.data.trend.T25.series) || [];
+    // 시간축: 이전(장부 점) + 최근(10분 단위)
+    const sA = A['T25-10A'].series || [], sP = A['T25-10P'].series || [], sB = A.BH10.series || [];
+    const older = sA.map((r) => C.parseKst(r[0])).filter((t) => t < rA.times[0]);
+    const times = older.concat(rA.times);
+    const lv = (r, arr) => Object.fromEntries(r.times.map((t, i) => [t, arr[i]]));
+    const mapA = lv(rA, rA.eq), mapP = lv(rP, rP.eq), mapB = lv(rB, rB.eq), mapT = tr ? lv(tr, tr.eq) : {};
+    const retOf = (m, ser, T) => (m[T] != null ? m[T] / cap - 1 : C.stepAt(ser, T));
+    const x0 = C.stepAt(trS, startMs);
+    const tCap = tr ? tr.capital : cap;
+    const ret = {
+      A: times.map((T) => retOf(mapA, sA, T)), P: times.map((T) => retOf(mapP, sP, T)), B: times.map((T) => retOf(mapB, sB, T)),
+      T: times.map((T) => (mapT[T] != null ? mapT[T] / tCap - 1 : C.stepAt(trS, T))),
+    };
+    const pc = (xs) => xs.map((x) => x * 100);
+    const T25r = C.rebasePct(ret.T, x0);
+    const c = cut(times, [pc(ret.A), pc(ret.P), pc(ret.B), T25r, C.diffPct(times.map((T) => (1 + (retOf(mapA, sA, T))) * cap), times.map((T) => (1 + (retOf(mapP, sP, T))) * cap), cap)]);
+    const last = (xs) => xs[xs.length - 1];
+    const dd = (xs) => C.maxDrawdown(xs.map((x) => 1 + x));
+    const eqA = rA.eq[n], eqP = rP.eq[n], eqB = rB.eq[n];
+    const xA = A['T25-10A'], xP = A['T25-10P'];
+    const diffNow = (eqA - eqP) / cap * 100;
+    const row = (name, sub, v, rr, ex) => `<tr><td><b>${name}</b><br><span class="muted">${sub}</span></td><td>${won(v)}</td><td class="${tone(rr)}">${pct(rr)}</td><td>${ex}</td></tr>`;
+    h += `<div class="card"><h2>세 장부 · 지금 평가</h2><table><tr><th>장부</th><th>평가액</th><th>시작 이후</th><th>최대낙폭 · 규모</th></tr>`
+      + row('10시 AI', '봇 의견 반영', eqA, eqA / cap - 1, `${pct(dd(ret.A))} · ${xA.scale != null ? Number(xA.gross).toFixed(2) + '배' : '-'}`)
+      + row('10시 순수', '기본안 그대로', eqP, eqP / cap - 1, `${pct(dd(ret.P))} · ${xP.gross != null ? Number(xP.gross).toFixed(2) + '배' : '-'}`)
+      + row('T25 (09시)', '참고 · 시작 시점부터 다시 센 값', tr ? cap * (1 + last(T25r) / 100) : null, last(T25r) / 100, tr ? '-' : '-')
+      + row('단순 보유', '같은 12코인 · 10시 기준', eqB, eqB / cap - 1, pct(dd(ret.B)))
+      + `</table><div class="muted">${esc(ks(meta.start_kst))} KST 시작 · 원금 각 ${won(cap)} · 지금 시세로 다시 평가한 값입니다.</div></div>`;
+    h += `<div class="card"><h2>AI 의견만의 효과 <small>(같은 시각·같은 비용) · 10시 AI − 10시 순수</small></h2><div class="metrics">`
+      + metric('누적 차이', pp(diffNow, '%p'), `${won(eqA - eqP)}`, tone(diffNow))
+      + metric('조정한 날', String((meta.ops || []).filter((o) => Object.keys(o.adjusted || {}).length).length) + '일', `기록된 날 ${(meta.ops || []).length}일`)
+      + metric('회전율 누적', `${xA.turnover_cum != null ? Number(xA.turnover_cum).toFixed(2) : '-'} vs ${xP.turnover_cum != null ? Number(xP.turnover_cum).toFixed(2) : '-'}`, 'AI vs 순수 (Σ|비중변화|)')
+      + `</div>` + rangeSel()
+      + chart(c.times, [{ name: 'AI − 순수 (%p)', values: c.arrs[4], color: '#dc2626', width: 2.2 }])
+      + `<h3>하루 단위 차이 <small class="muted">%p · 10시~다음 날 10시</small></h3>${aiBars(meta.daily)}`
+      + `<div class="muted">차이가 +이면 봇 의견이 도움이 된 날입니다. 하루 이틀 숫자로 판단하지 않습니다.</div></div>`;
+    h += `<div class="card"><h2>누적 수익률 곡선 <small>시작 시점 대비 %, 10분 단위</small></h2>${rangeSel()}`
+      + chart(c.times, [{ name: '10시 AI', values: c.arrs[0], color: '#dc2626', width: 2.4 }, { name: '10시 순수', values: c.arrs[1], color: '#2563eb', width: 2 },
+        { name: 'T25 (09시, 참고)', values: c.arrs[3], color: '#6b7280', dash: true }, { name: '동일위험 단순 보유', values: c.arrs[2], color: '#f59e0b' }])
+      + `<div class="muted">T25(09시)와 10시 순수의 차이는 "같은 포지션을 1시간 늦게 잡은 효과"입니다. 이전 구간은 점검 시점의 장부 값입니다.</div></div>`;
+    h += `<div class="card"><h2>봇 조정 기록 <small>공개 · 암호화 없음</small></h2>${aiLogHtml()}<div class="muted">효과 = (배수−1) × 기본 비중 × 그 코인의 10시~다음 날 10시 수익률 (원금 대비 %p, 비용 제외 추정). 근거 한 줄과 출처는 봇이 입력 자료 안에서만 적습니다.</div></div>`;
+    const hold = (xk, nm) => { const r = xk === 'A' ? rA : rP; return `<div class="card"><h2>${nm} 지금 보유 <small>(${C.fmtKst(r.lastBoundary)} 기준)</small></h2><table><tr><th>코인</th><th>비중</th><th>시작가</th><th>현재가</th><th>기여</th></tr>`
+      + r.holdings.map((q) => `<tr><td><b>${esc(q.coin)}</b> <span class="tag ${q.w < 0 ? 'short' : ''}">${q.w < 0 ? '공매도' : '매수'}</span></td><td>${(q.w * 100).toFixed(2)}%</td><td>${price(q.entry)}</td><td>${price(q.now)}</td><td class="${tone(q.contrib)}">${q.contrib == null ? '-' : (q.contrib * 100 >= 0 ? '+' : '') + (q.contrib * 100).toFixed(3) + '%p'}</td></tr>`).join('') + '</table></div>'; };
+    h += hold('A', '10시 AI') + hold('P', '10시 순수');
+    const lr = meta.last_run || {};
+    h += `<div class="card"><h2>실행 상태</h2>` + kv([
+      ['체결 시각', '10:00 KST(봇 의견 반영) · 21:00 KST(방향 점검, 봇 없음)'],
+      ['마지막 실행', esc(String(lr.at_kst || '-').slice(5)) + ' · ' + esc(lr.status || '')],
+      ['장부', (meta.ledger && meta.ledger.ok) ? '정상 · ' + (meta.ledger.rows || 0) + '건' : '확인 필요']]) + `</div>`;
+    return h;
+  }
+
   function homeView() {
     let rows = '';
     const nowMs = state.fetchedAt;
@@ -402,6 +501,12 @@
       const r = trendResult(k); if (!r) continue; const n = r.times.length - 1; const v = r.eq[n];
       rows += `<tr data-go="trend" data-t="${k}"><td><b>${esc(k)}</b><br><span class="muted">${esc(TR_SHORT[k] || x.name)}</span></td><td>${won(v)}</td><td class="${tone(v / r.capital - 1)}">${pct(v / r.capital - 1)}</td><td class="${tone((v / r.capital) / r.btc[n] - 1)}">${pct((v / r.capital) / r.btc[n] - 1)}<br><span class="muted">단순 보유 대비</span></td><td>관찰 중</td></tr>`;
     }
+    for (const [k, x] of Object.entries(state.data.ai || {})) {
+      if (k === 'BH10') continue;
+      const r = aiResult(k); if (!r) continue; const n = r.times.length - 1; const v = r.eq[n];
+      const bh = aiResult('BH10');
+      rows += `<tr data-go="ai"><td><b>${esc(k === 'T25-10A' ? '10시 AI' : '10시 순수')}</b><br><span class="muted">T25 신호 · 10시 적용${k === 'T25-10A' ? ' · 봇 의견' : ''}</span></td><td>${won(v)}</td><td class="${tone(v / r.capital - 1)}">${pct(v / r.capital - 1)}</td><td class="${tone(bh ? v / bh.eq[bh.eq.length - 1] - 1 : 0)}">${bh ? pct(v / bh.eq[bh.eq.length - 1] - 1) : '-'}<br><span class="muted">단순 보유 대비</span></td><td>시범 중</td></tr>`;
+    }
     const a2b = Object.values(state.data.a2 || {})[0], meta = state.data.nm_meta || {}, tmeta = state.data.trend_meta || {};
     return `<div class="card"><h2>모든 시험 요약 · 지금 평가</h2><table><tr><th>시험</th><th>평가액</th><th>원금 대비</th><th>비교</th><th>상태</th></tr>${rows}</table><div class="muted">A2와 A2-W26은 빗썸 16개 코인 균등 보유와, Numerai 세 시험은 BTC 보유와, 하루 추세 두 시험은 같은 12개 코인 단순 보유와 비교합니다. 줄을 누르면 자세히 봅니다. 모두 모의 계산이며 실제 성과가 아닙니다.</div></div>`
       + `<div class="card"><h2>시작과 갱신</h2>` + kv([
@@ -415,13 +520,13 @@
 
   function render() {
     const d = state.data; if (!d) return;
-    const tabs = [['home', '한눈에']].concat(Object.entries(d.a2 || {}).map(([k, b]) => [k, b.name])).concat(Object.keys(d.nm || {}).length ? [['nm', 'Numerai 바이낸스']] : []).concat(Object.keys(d.trend || {}).length ? [['trend', '하루 추세']] : []);
+    const tabs = [['home', '한눈에']].concat(Object.entries(d.a2 || {}).map(([k, b]) => [k, b.name])).concat(Object.keys(d.nm || {}).length ? [['nm', 'Numerai 바이낸스']] : []).concat(Object.keys(d.trend || {}).length ? [['trend', '하루 추세']] : []).concat(d.ai_meta ? [['ai', '10시 비교']] : []);
     $('#tabs').innerHTML = tabs.map(([v, l]) => `<button class="${state.tab === v ? 'on' : ''}" data-v="${v}">${esc(l)}</button>`).join('');
     const src = state.px && state.px.source === 'bithumb' ? '빗썸 원화 공개 시세 10분봉' : state.px && state.px.source === 'binance-ratio' ? '<b class="down">빗썸 접속 실패</b> → 바이낸스 달러 시세의 등락률로 추정' : '-';
     const a2b = Object.values(d.a2 || {})[0]; const lrA = a2b && a2b.last_run ? String(a2b.last_run.run_kst || '').replace('T', ' ').slice(5, 16) : '-'; const lrN = d.nm_meta ? String(d.nm_meta.generated_kst || '').slice(5, 16) : '-'; const lrT = d.trend_meta ? String(d.trend_meta.generated_kst || '').slice(5, 16) : '-';
     $('#meta').innerHTML = `시세 기준 <b>${C.fmtKst(state.fetchedAt)} KST</b> · 장부 A2 ${esc(lrA)} · Numerai ${esc(lrN)} · 하루 추세 ${esc(lrT)} KST<br>평가 시세: A2 계열 ${src}, Numerai·하루 추세 바이낸스 공개 시세` + (state.warn.length ? `<br><span class="down">${esc(state.warn.join(' / '))}</span>` : '');
     let h = '';
-    if (state.tab === 'home') h = homeView(); else if (state.tab === 'nm') h = nmView(); else if (state.tab === 'trend') h = trendView(); else h = a2View(state.tab);
+    if (state.tab === 'home') h = homeView(); else if (state.tab === 'nm') h = nmView(); else if (state.tab === 'trend') h = trendView(); else if (state.tab === 'ai') h = aiView(); else h = a2View(state.tab);
     $('#main').innerHTML = h; bindCharts();
   }
 
@@ -434,6 +539,7 @@
       const prog = (a, b, w) => { $('#prog').textContent = `${w} 시세 받는 중 ${a}/${b}`; };
       const [px, nmPx] = await Promise.all([fetchA2Prices(state.data, prog), fetchNmPrices(state.data, prog)]);
       state.px = px; state.nmPx = nmPx; state.fetchedAt = Date.now();
+      try { const lr = await fetch('ai/log.json?t=' + Date.now(), { cache: 'no-store' }); state.aiLog = lr.ok ? await lr.json() : null; } catch (e) { state.aiLog = null; }
       if (nmPx.errs && nmPx.errs.length) state.warn.push('바이낸스 시세 못 받은 코인: ' + nmPx.errs.join(', '));
       $('#prog').textContent = '';
       render();
