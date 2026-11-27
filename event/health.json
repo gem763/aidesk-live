@@ -1,7 +1,7 @@
 {
  "errors": 0,
- "last_check_kst": "2026-11-28 06:05",
+ "last_check_kst": "2026-11-28 08:35",
  "paper": true,
- "runs": 16,
+ "runs": 26,
  "version": "evbook 1.2 (2026-11-27, perp settlement cap + zero-volume bars, MI r3)"
 }
