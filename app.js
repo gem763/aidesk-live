@@ -4,7 +4,7 @@
   const C = window.LiveCore;
   const $ = (s) => document.querySelector(s);
   const PASS_KEY = 'aidesk_live_pass';
-  const state = { data: null, tab: 'home', a2View: { A2: 'total', A2W26: 'total' }, a2Slot: { A2: '18h', A2W26: '18h' }, nmTest: 'NM-LS', trTest: 'T25', aiLog: null, range: 'all', px: null, nmPx: null, fetchedAt: null, source: '', warn: [] };
+  const state = { data: null, tab: 'home', a2View: { A2: 'total', A2W26: 'total' }, a2Slot: { A2: '18h', A2W26: '18h' }, nmTest: 'NM-LS', trTest: 'T25', aiLog: null, ev: null, range: 'all', px: null, nmPx: null, fetchedAt: null, source: '', warn: [] };
 
   /* ---------- crypto ---------- */
   const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -518,15 +518,49 @@
         ['자료 파일', ks(state.data.generated_kst) + ' KST에 만듦']]) + `</div>`;
   }
 
+  // ---- 상장폐지 사건 장부 (EV-A / EV-B / EV-AI) : event/evbook.json (평문 공개, 모의)
+  function evView() {
+    const E = state.ev;
+    const won2 = (x) => (x == null ? '-' : Math.round(x).toLocaleString('ko-KR') + '원');
+    const pc2 = (x) => (x == null ? '-' : (x >= 0 ? '+' : '') + Number(x).toFixed(2) + '%');
+    const cls = (x) => (x > 0 ? 'up' : x < 0 ? 'down' : '');
+    let h = `<div class="card"><h2>상장폐지 공매도 · 세 장부 <small class="down">모의(실제 돈 아님)</small></h2><div class="txt">바이낸스가 어떤 코인을 <b>현물에서 상장폐지</b>한다고 공지하면, 15분마다 도는 PC 점검이 그 공지를 찾아 그 코인 선물을 모의로 공매도합니다. 세 장부는 같은 시각·같은 가격에 들어가고 나가는 규칙만 다릅니다.</div>`;
+    if (!E) return h + `<div class="txt">아직 자료가 없습니다(event/evbook.json). PC 점검이 시작되면 나타납니다.</div></div>`;
+    const R = (E.meta || {}).rules || {};
+    h += `<table><tr><th>장부</th><th>규칙</th></tr>` + ['EV-A', 'EV-B', 'EV-AI', 'ALL', 'monitoring'].map((k) => `<tr><td><b>${esc(k === 'ALL' ? '공통' : k === 'monitoring' ? '모니터링' : k)}</b></td><td>${esc(R[k] || '')}</td></tr>`).join('') + `</table>`;
+    h += `<div class="note">${esc((E.meta || {}).cost_note || '')} · ${esc((E.meta || {}).delist_time_note || '')} · 자료 ${esc((E.meta || {}).generated_kst || '-')} KST · 원금은 장부당 1,000만 원(원화는 표시 단위)</div></div>`;
+    h += `<div class="card"><h2>장부 성적</h2><table><tr><th>장부</th><th>평가액</th><th>확정 손익</th><th>끝난 거래</th><th>보유 중</th></tr>` + Object.entries(E.books || {}).map(([k, b]) => `<tr><td><b>${esc(k)}</b></td><td>${won2(b.equity_krw)}</td><td class="${cls(b.realized_krw)}">${won2(b.realized_krw)}</td><td>${b.n_closed}</td><td>${b.n_open}</td></tr>`).join('') + `</table>`;
+    const eq = (E.equity || []).slice(-400);
+    if (eq.length > 1) {
+      const W = 640, Hh = 140, ks = Object.keys(eq[0].eq), all = eq.flatMap((p) => ks.map((k) => p.eq[k])), lo = Math.min(...all), hi = Math.max(...all) || 1, sp = hi - lo || 1;
+      const col = { 'EV-A': '#2a7', 'EV-B': '#27c', 'EV-AI': '#c52' };
+      h += `<svg viewBox="0 0 ${W} ${Hh}" style="width:100%;height:auto">` + ks.map((k) => `<polyline fill="none" stroke="${col[k] || '#888'}" stroke-width="1.6" points="${eq.map((p, i) => `${(i / (eq.length - 1)) * (W - 10) + 5},${Hh - 8 - ((p.eq[k] - lo) / sp) * (Hh - 16)}`).join(' ')}"/>`).join('') + `</svg><div class="muted">${ks.map((k) => `<span style="color:${col[k]}">■</span> ${esc(k)}`).join(' &nbsp; ')} · ${esc(eq[0].t_kst)} ~ ${esc(eq[eq.length - 1].t_kst)} KST</div>`;
+    }
+    h += `</div>`;
+    const op = E.open || [];
+    h += `<div class="card"><h2>보유 중 (${op.length})</h2>` + (op.length ? `<table><tr><th>장부·코인</th><th>진입</th><th>진입가 → 현재</th><th>손익</th><th>최악 구간</th><th>나갈 때</th></tr>` + op.map((p) => `<tr><td><b>${esc(p.book)}</b> ${esc(p.sym)}${p.open_frac < 1 ? ` <span class="muted">(${Math.round(p.open_frac * 100)}%)</span>` : ''}</td><td>${esc(p.entry_kst)}<br><span class="muted">공지 후 ${esc(p.delay_min)}분</span></td><td>${price(p.entry_px)} → ${price(p.mark_px)}</td><td class="${cls(p.unreal_ret_pct)}">${pc2(p.unreal_ret_pct)}</td><td class="neg">+${esc(p.mae_pct ?? 0)}% 상승</td><td>${esc(p.exit_plan)}${p.settle_kst ? `<br><span class="muted">선물 정산 ${esc(p.settle_kst)}</span>` : ''}</td></tr>`).join('') + `</table>` : `<div class="txt">없음</div>`) + `</div>`;
+    const rv = (E.reviews || []).slice().reverse().slice(0, 30);
+    const KIND = { '4h_decision': '4시간 판단', periodic: '4시간마다 점검', urgent_rule_notice: '규칙 변경 긴급', ambiguous_notice: '애매한 공지' };
+    const sg = (E.signals || []).slice().reverse();
+    h += `<div class="card"><h2>경고 후보 기록 <small>거래에 안 씀</small></h2><div class="txt">공지 후 30분 미결제약정 증가(+60% 이상이면 상위 25%), 펀딩 1시간 주기 전환, 펀딩 하한 도달. 앞으로 쌓아서 효과가 있는지만 봅니다.</div>` + (sg.length ? `<table><tr><th>코인·공지</th><th>30분 미결제약정</th><th>1시간 주기 전환</th><th>펀딩 하한</th></tr>` + sg.map((g) => `<tr><td><b>${esc(g.sym)}</b><br><span class="muted">${esc(g.notice_kst)}</span></td><td>${g.oi30_growth == null ? '자료 없음' : (g.oi30_growth >= 0 ? '+' : '') + (g.oi30_growth * 100).toFixed(0) + '%' + (g.oi30_topq ? ' <b>(상위)</b>' : '')}</td><td>${esc(g.funding_1h_first_kst || '-')}</td><td>${esc(g.funding_floor_first_kst || '-')}</td></tr>`).join('') + `</table>` : `<div class="txt">아직 없음</div>`) + `</div>`;
+    h += `<div class="card"><h2>AI 팀 판단 기록 <small>공개</small></h2><div class="txt">시한까지 판단이 오지 않으면 <b>청산</b>(=EV-A 규칙)합니다. AI는 보유·절반 청산·전량 청산·기권만 고를 수 있고, +30% 손절과 폐지 24시간 전 청산은 AI가 못 바꿉니다. 분류: HOLD 보유, VETO 줄이거나 청산, ABSTAIN 기권→청산, DEFAULT 무응답→청산, NO_REVIEW 요청 못 보냄→청산.</div>` + (rv.length ? `<table><tr><th>종류·대상</th><th>시한</th><th>결과</th><th>분류</th><th>이유</th></tr>` + rv.map((r) => `<tr><td>${esc(KIND[r.kind] || r.kind)}<br><span class="muted">${esc(r.pid || (r.notice_title || '').slice(0, 60))}</span></td><td>${esc(r.deadline_kst)}</td><td>${esc(r.decision ? r.decision.action : r.status)}</td><td>${esc(r.outcome_class || '')}</td><td>${esc(r.decision ? r.decision.reason : r.status === 'default_applied' ? '시한까지 판단 없음 → 청산' : '')}</td></tr>`).join('') + `</table>` : `<div class="txt">아직 없음</div>`) + `</div>`;
+    const tr = (E.trades || []).slice().reverse().slice(0, 60);
+    h += `<div class="card"><h2>끝난 거래 (최근 ${tr.length})</h2>` + (tr.length ? `<table><tr><th>장부·코인</th><th>기간(KST)</th><th>수익률</th><th>손익</th><th>최악 구간</th><th>나간 이유</th></tr>` + tr.map((t) => `<tr><td><b>${esc(t.book)}</b> ${esc(t.sym)}</td><td>${esc(t.entry_kst)}<br>→ ${esc(t.exit_kst)}</td><td class="${cls(t.ret_pct)}">${pc2(t.ret_pct)}</td><td class="${cls(t.pnl_krw)}">${won2(t.pnl_krw)}</td><td class="neg">+${esc(t.mae_pct ?? 0)}%</td><td>${esc(t.reason)}</td></tr>`).join('') + `</table>` : `<div class="txt">아직 없음</div>`) + `</div>`;
+    const KN = { spot_delist: '현물 폐지', futures_delist: '선물 폐지', monitoring: '모니터링 지정', rule_change: '선물 규칙 변경', other: '기타(애매)' };
+    const nt = (E.notices || []).slice().reverse().slice(0, 40);
+    h += `<div class="card"><h2>바이낸스 공지와 분류 (최근 ${nt.length})</h2>` + (nt.length ? `<table><tr><th>게시(KST)</th><th>제목</th><th>분류</th><th>한 일</th></tr>` + nt.map((n) => `<tr><td>${esc(n.release_kst)}<br><span class="muted">발견 +${esc(n.detect_delay_min)}분</span></td><td>${esc(n.title)}</td><td>${esc(KN[n.kind] || n.kind)}${n.ambiguous ? ' <b>(AI 확인)</b>' : ''}</td><td>${esc(n.action)}</td></tr>`).join('') + `</table>` : `<div class="txt">아직 없음</div>`) + `</div>`;
+    return h;
+  }
+
   function render() {
     const d = state.data; if (!d) return;
-    const tabs = [['home', '한눈에']].concat(Object.entries(d.a2 || {}).map(([k, b]) => [k, b.name])).concat(Object.keys(d.nm || {}).length ? [['nm', 'Numerai 바이낸스']] : []).concat(Object.keys(d.trend || {}).length ? [['trend', '하루 추세']] : []).concat(d.ai_meta ? [['ai', '10시 비교']] : []);
+    const tabs = [['home', '한눈에']].concat(Object.entries(d.a2 || {}).map(([k, b]) => [k, b.name])).concat(Object.keys(d.nm || {}).length ? [['nm', 'Numerai 바이낸스']] : []).concat(Object.keys(d.trend || {}).length ? [['trend', '하루 추세']] : []).concat(d.ai_meta ? [['ai', '10시 비교']] : []).concat([['ev', '상장폐지']]);
     $('#tabs').innerHTML = tabs.map(([v, l]) => `<button class="${state.tab === v ? 'on' : ''}" data-v="${v}">${esc(l)}</button>`).join('');
     const src = state.px && state.px.source === 'bithumb' ? '빗썸 원화 공개 시세 10분봉' : state.px && state.px.source === 'binance-ratio' ? '<b class="down">빗썸 접속 실패</b> → 바이낸스 달러 시세의 등락률로 추정' : '-';
     const a2b = Object.values(d.a2 || {})[0]; const lrA = a2b && a2b.last_run ? String(a2b.last_run.run_kst || '').replace('T', ' ').slice(5, 16) : '-'; const lrN = d.nm_meta ? String(d.nm_meta.generated_kst || '').slice(5, 16) : '-'; const lrT = d.trend_meta ? String(d.trend_meta.generated_kst || '').slice(5, 16) : '-';
     $('#meta').innerHTML = `시세 기준 <b>${C.fmtKst(state.fetchedAt)} KST</b> · 장부 A2 ${esc(lrA)} · Numerai ${esc(lrN)} · 하루 추세 ${esc(lrT)} KST<br>평가 시세: A2 계열 ${src}, Numerai·하루 추세 바이낸스 공개 시세` + (state.warn.length ? `<br><span class="down">${esc(state.warn.join(' / '))}</span>` : '');
     let h = '';
-    if (state.tab === 'home') h = homeView(); else if (state.tab === 'nm') h = nmView(); else if (state.tab === 'trend') h = trendView(); else if (state.tab === 'ai') h = aiView(); else h = a2View(state.tab);
+    if (state.tab === 'home') h = homeView(); else if (state.tab === 'nm') h = nmView(); else if (state.tab === 'trend') h = trendView(); else if (state.tab === 'ai') h = aiView(); else if (state.tab === 'ev') h = evView(); else h = a2View(state.tab);
     $('#main').innerHTML = h; bindCharts();
   }
 
@@ -540,6 +574,7 @@
       const [px, nmPx] = await Promise.all([fetchA2Prices(state.data, prog), fetchNmPrices(state.data, prog)]);
       state.px = px; state.nmPx = nmPx; state.fetchedAt = Date.now();
       try { const lr = await fetch('ai/log.json?t=' + Date.now(), { cache: 'no-store' }); state.aiLog = lr.ok ? await lr.json() : null; } catch (e) { state.aiLog = null; }
+      try { const er = await fetch('event/evbook.json?t=' + Date.now(), { cache: 'no-store' }); state.ev = er.ok ? await er.json() : null; } catch (e) { state.ev = null; }
       if (nmPx.errs && nmPx.errs.length) state.warn.push('바이낸스 시세 못 받은 코인: ' + nmPx.errs.join(', '));
       $('#prog').textContent = '';
       render();
