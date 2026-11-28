@@ -1,0 +1,168 @@
+{
+  "schema": "paper_trend_ai/opinion/v2",
+  "day": "2026-11-28",
+  "base_boundary_utc": "2026-11-28T00:00:00Z",
+  "apply_at_kst": "2026-11-28T10:00:00",
+  "apply_at_utc": "2026-11-28T01:00:00Z",
+  "sealed_utc": "2026-11-28T00:59:33Z",
+  "sealed_kst": "2026-11-28T09:59:33",
+  "seal_target_met": false,
+  "status": "ok",
+  "status_reason": "봉인이 09:55 목표를 넘겼지만 10:00 전이라 반영",
+  "roles": {
+    "QR": {
+      "valid": true,
+      "received_kst": "2026-11-28T09:09:10",
+      "late": false,
+      "reason": ""
+    },
+    "MI": {
+      "valid": true,
+      "received_kst": "2026-11-28T09:09:19",
+      "late": false,
+      "reason": ""
+    },
+    "SK": {
+      "needed": true,
+      "called": true,
+      "valid": true,
+      "received_kst": "2026-11-28T09:10:00",
+      "late": false,
+      "reason": ""
+    }
+  },
+  "coins": {
+    "BTC": {
+      "base_w": -0.03243229,
+      "m": 1.0,
+      "ai_w": -0.03243229,
+      "why": "기본안 유지",
+      "sources": [],
+      "proposed_by": [],
+      "challenged_by": []
+    },
+    "ETH": {
+      "base_w": -0.02980119,
+      "m": 1.0,
+      "ai_w": -0.02980119,
+      "why": "기본안 유지",
+      "sources": [],
+      "proposed_by": [],
+      "challenged_by": []
+    },
+    "SOL": {
+      "base_w": -0.03219545,
+      "m": 1.0,
+      "ai_w": -0.03219545,
+      "why": "기본안 유지",
+      "sources": [],
+      "proposed_by": [],
+      "challenged_by": []
+    },
+    "XRP": {
+      "base_w": 0.03360683,
+      "m": 0.75,
+      "ai_w": 0.02520512,
+      "why": "SK: 놓친 위험",
+      "sources": [
+        "n37"
+      ],
+      "proposed_by": [
+        "SK(missed)"
+      ],
+      "challenged_by": []
+    },
+    "DOGE": {
+      "base_w": -0.02897483,
+      "m": 1.0,
+      "ai_w": -0.02897483,
+      "why": "기본안 유지",
+      "sources": [],
+      "proposed_by": [],
+      "challenged_by": [
+        "SK(QR)"
+      ]
+    },
+    "BNB": {
+      "base_w": -0.03965872,
+      "m": 1.0,
+      "ai_w": -0.03965872,
+      "why": "기본안 유지",
+      "sources": [],
+      "proposed_by": [],
+      "challenged_by": []
+    },
+    "ADA": {
+      "base_w": -0.02943427,
+      "m": 1.0,
+      "ai_w": -0.02943427,
+      "why": "기본안 유지",
+      "sources": [],
+      "proposed_by": [],
+      "challenged_by": []
+    },
+    "LINK": {
+      "base_w": -0.02974818,
+      "m": 1.0,
+      "ai_w": -0.02974818,
+      "why": "기본안 유지",
+      "sources": [],
+      "proposed_by": [],
+      "challenged_by": [
+        "SK(QR)"
+      ]
+    },
+    "AVAX": {
+      "base_w": -0.03161953,
+      "m": 1.0,
+      "ai_w": -0.03161953,
+      "why": "기본안 유지",
+      "sources": [],
+      "proposed_by": [],
+      "challenged_by": []
+    },
+    "LTC": {
+      "base_w": 0.03775806,
+      "m": 1.0,
+      "ai_w": 0.03775806,
+      "why": "기본안 유지",
+      "sources": [],
+      "proposed_by": [],
+      "challenged_by": [
+        "SK(QR)"
+      ]
+    },
+    "SUI": {
+      "base_w": -0.0287575,
+      "m": 1.0,
+      "ai_w": -0.0287575,
+      "why": "기본안 유지",
+      "sources": [],
+      "proposed_by": [],
+      "challenged_by": []
+    },
+    "PEPE": {
+      "base_w": -0.022485,
+      "m": 1.0,
+      "ai_w": -0.022485,
+      "why": "기본안 유지",
+      "sources": [],
+      "proposed_by": [],
+      "challenged_by": [
+        "SK(QR)"
+      ]
+    }
+  },
+  "gross_base": 0.376472,
+  "gross_ai_before_cap": 0.36807,
+  "input_sha256": "9ed37c90191bf926675c961c66dd651aa5173c54164b8e648d405b04f2f265f7",
+  "prereg_sha256": "2a2786e0da3f34c69c8f9b325f64380b50b23a806b8b7478c7b55344a0645b2b",
+  "hash": "41e567723f09547922da2c5ed82a14e419c1f4b59444dd517bd28d92c1425ac3",
+  "source_index": {
+    "n37": {
+      "title": "3x XRP ETFs Scheduled for Nov. 30 Effective Date After SEC Filing Update - KuCoin",
+      "t": "2026-11-27T04:07:09Z",
+      "src": "google_news"
+    }
+  }
+}

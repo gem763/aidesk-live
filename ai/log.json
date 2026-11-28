@@ -2,6 +2,165 @@
   "schema": "paper_trend_ai/log/v2",
   "paper_only": true,
   "note": "모의 운용 의견 기록(공개, 암호화 없음). 실제 거래가 아닙니다.",
-  "generated_kst": "2026-11-28T09:24:30",
-  "days": []
+  "generated_kst": "2026-11-28T10:02:06",
+  "days": [
+    {
+      "day": "2026-11-28",
+      "status": "ok",
+      "status_reason": "봉인이 09:55 목표를 넘겼지만 10:00 전이라 반영",
+      "sealed_kst": "2026-11-28T09:59:33",
+      "seal_target_met": false,
+      "roles": {
+        "QR": {
+          "valid": true,
+          "received_kst": "2026-11-28T09:09:10",
+          "late": false,
+          "reason": ""
+        },
+        "MI": {
+          "valid": true,
+          "received_kst": "2026-11-28T09:09:19",
+          "late": false,
+          "reason": ""
+        },
+        "SK": {
+          "needed": true,
+          "called": true,
+          "valid": true,
+          "received_kst": "2026-11-28T09:10:00",
+          "late": false,
+          "reason": ""
+        }
+      },
+      "coins": {
+        "BTC": {
+          "base_w": -0.03243229,
+          "m": 1.0,
+          "ai_w": -0.03243229,
+          "why": "기본안 유지",
+          "sources": [],
+          "proposed_by": [],
+          "challenged_by": []
+        },
+        "ETH": {
+          "base_w": -0.02980119,
+          "m": 1.0,
+          "ai_w": -0.02980119,
+          "why": "기본안 유지",
+          "sources": [],
+          "proposed_by": [],
+          "challenged_by": []
+        },
+        "SOL": {
+          "base_w": -0.03219545,
+          "m": 1.0,
+          "ai_w": -0.03219545,
+          "why": "기본안 유지",
+          "sources": [],
+          "proposed_by": [],
+          "challenged_by": []
+        },
+        "XRP": {
+          "base_w": 0.03360683,
+          "m": 0.75,
+          "ai_w": 0.02520512,
+          "why": "SK: 놓친 위험",
+          "sources": [
+            "n37"
+          ],
+          "proposed_by": [
+            "SK(missed)"
+          ],
+          "challenged_by": []
+        },
+        "DOGE": {
+          "base_w": -0.02897483,
+          "m": 1.0,
+          "ai_w": -0.02897483,
+          "why": "기본안 유지",
+          "sources": [],
+          "proposed_by": [],
+          "challenged_by": [
+            "SK(QR)"
+          ]
+        },
+        "BNB": {
+          "base_w": -0.03965872,
+          "m": 1.0,
+          "ai_w": -0.03965872,
+          "why": "기본안 유지",
+          "sources": [],
+          "proposed_by": [],
+          "challenged_by": []
+        },
+        "ADA": {
+          "base_w": -0.02943427,
+          "m": 1.0,
+          "ai_w": -0.02943427,
+          "why": "기본안 유지",
+          "sources": [],
+          "proposed_by": [],
+          "challenged_by": []
+        },
+        "LINK": {
+          "base_w": -0.02974818,
+          "m": 1.0,
+          "ai_w": -0.02974818,
+          "why": "기본안 유지",
+          "sources": [],
+          "proposed_by": [],
+          "challenged_by": [
+            "SK(QR)"
+          ]
+        },
+        "AVAX": {
+          "base_w": -0.03161953,
+          "m": 1.0,
+          "ai_w": -0.03161953,
+          "why": "기본안 유지",
+          "sources": [],
+          "proposed_by": [],
+          "challenged_by": []
+        },
+        "LTC": {
+          "base_w": 0.03775806,
+          "m": 1.0,
+          "ai_w": 0.03775806,
+          "why": "기본안 유지",
+          "sources": [],
+          "proposed_by": [],
+          "challenged_by": [
+            "SK(QR)"
+          ]
+        },
+        "SUI": {
+          "base_w": -0.0287575,
+          "m": 1.0,
+          "ai_w": -0.0287575,
+          "why": "기본안 유지",
+          "sources": [],
+          "proposed_by": [],
+          "challenged_by": []
+        },
+        "PEPE": {
+          "base_w": -0.022485,
+          "m": 1.0,
+          "ai_w": -0.022485,
+          "why": "기본안 유지",
+          "sources": [],
+          "proposed_by": [],
+          "challenged_by": [
+            "SK(QR)"
+          ]
+        }
+      },
+      "source_index": {
+        "n37": {
+          "title": "3x XRP ETFs Scheduled for Nov. 30 Effective Date After SEC Filing Update - KuCoin",
+          "t": "2026-11-27T04:07:09Z",
+          "src": "google_news"
+        }
+      }
+    }
+  ]
 }
